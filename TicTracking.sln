@@ -1,0 +1,43 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 15
+VisualStudioVersion = 15.0.28307.705
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "TicTracking", "TicTracking\TicTracking.vcxproj", "{C5F80730-F44F-4478-BDAE-6634EFC2CA88}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MPU6050_DMP6", "..\..\..\..\..\Workspace\i2cdevlib\Arduino\MPU6050\examples\MPU6050_DMP6\MPU6050_DMP6.vcxproj", "{5BF62230-323D-4DAE-AC8B-43345226F70C}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "temp", "..\..\..\Documents\Arduino\temp\temp.vcxproj", "{606C280D-73E3-4796-8A9F-8A2770F544BC}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SD stuff", "..\..\..\Documents\Arduino\SD stuff\SD stuff.vcxproj", "{1F6AD8A6-BB11-4CE2-A358-229DC55B226E}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x86 = Debug|x86
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{C5F80730-F44F-4478-BDAE-6634EFC2CA88}.Debug|x86.ActiveCfg = Debug|Win32
+		{C5F80730-F44F-4478-BDAE-6634EFC2CA88}.Debug|x86.Build.0 = Debug|Win32
+		{C5F80730-F44F-4478-BDAE-6634EFC2CA88}.Release|x86.ActiveCfg = Release|Win32
+		{C5F80730-F44F-4478-BDAE-6634EFC2CA88}.Release|x86.Build.0 = Release|Win32
+		{5BF62230-323D-4DAE-AC8B-43345226F70C}.Debug|x86.ActiveCfg = Debug|Win32
+		{5BF62230-323D-4DAE-AC8B-43345226F70C}.Debug|x86.Build.0 = Debug|Win32
+		{5BF62230-323D-4DAE-AC8B-43345226F70C}.Release|x86.ActiveCfg = Release|Win32
+		{5BF62230-323D-4DAE-AC8B-43345226F70C}.Release|x86.Build.0 = Release|Win32
+		{606C280D-73E3-4796-8A9F-8A2770F544BC}.Debug|x86.ActiveCfg = Debug|Win32
+		{606C280D-73E3-4796-8A9F-8A2770F544BC}.Debug|x86.Build.0 = Debug|Win32
+		{606C280D-73E3-4796-8A9F-8A2770F544BC}.Release|x86.ActiveCfg = Release|Win32
+		{606C280D-73E3-4796-8A9F-8A2770F544BC}.Release|x86.Build.0 = Release|Win32
+		{1F6AD8A6-BB11-4CE2-A358-229DC55B226E}.Debug|x86.ActiveCfg = Debug|Win32
+		{1F6AD8A6-BB11-4CE2-A358-229DC55B226E}.Debug|x86.Build.0 = Debug|Win32
+		{1F6AD8A6-BB11-4CE2-A358-229DC55B226E}.Release|x86.ActiveCfg = Release|Win32
+		{1F6AD8A6-BB11-4CE2-A358-229DC55B226E}.Release|x86.Build.0 = Release|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {7378C0C1-358D-402E-8409-9F2C41E298F1}
+	EndGlobalSection
+EndGlobal
