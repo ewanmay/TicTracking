@@ -3,7 +3,7 @@
 // 
 
 #include "Logging.h"
-#include <SD.h>
+//#include <SD.h>
 
 File Logfile;
 
