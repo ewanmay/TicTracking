@@ -55,6 +55,7 @@ THE SOFTWARE.
 #include <SD.h>
 #include <SPI.h>
 #include <Wire.h>
+#include <RTClib.h>
 
 /*****************************************************************************
  *
@@ -68,10 +69,11 @@ THE SOFTWARE.
 #define GYRO_RATE 1000
 
 #define RECORD_READABLE_QUATERNION
-//#define OUTPUT_ALL
-//#define RECORD_ALL
-
 #define OUTPUT_READABLE_QUATERNION
+//#define OUTPUT_ALL
+//#define RECORD_ALL // uncomment "RECORD_ALL" if you want to write the actual data straight out of the FIFO
+
+
 
 /*****************************************************************************
  *
@@ -79,7 +81,7 @@ THE SOFTWARE.
  *
  *****************************************************************************/
 #define TIMING
-//#define LOGFILE "/Logfile.csv"
+#define LOGFILE "/Log xxxx - yyyy.txt"  //where xxxx = date and yyyy = daily sequence
 #ifdef TIMING
 long start = 0; // defines top of loop
 #define TIME_START start=millis();
@@ -108,17 +110,21 @@ void record_time(String msg, long time, int line_no, long start)
  * Logging
  *
  *****************************************************************************/
+#define LOGGING
+#define LOGFILE "/Logs/Log yyyy-xxxx.txt" //yyyy is date and xxxx is sequence
 
-#define LOGFILE "/Logfile.csv"
+
 #ifdef LOGGING
-#include "Logging.h"
-#define LOG_START(Logfile, CS) logger_setup(Logfile, CS); //CS is chip select pin
-#define LOG_DEBUG(Logfile, now, msg) logger_debug(Logfile, now, msg);
-#define LOG_DATA(msg) logger_data(__LINE__, msg);
-#define LOG_INFO(Logfile, now, msg)logger_info(Logfile, millis(), msg);
-#define LOG_ERROR(msg) logger_data(__LINE__, msg);
-#define LOG_CRITICAL(Logfile, now, msg) logger_critical(Logfile, millis(), msg);
-#define LOG_READABLE_QUATERNION
+//#include "Logging.h"
+//#define LOG_START(Logfile, CS) logger_setup(Logfile, CS); //CS is chip select pin
+//#define LOG_DEBUG(Logfile, now, msg) logger_debug(Logfile, now, msg);
+//#define LOG_DATA(msg) logger_data(__LINE__, msg);
+//#define LOG_INFO(Logfile, now, msg)logger_info(Logfile, millis(), msg);
+//#define LOG_ERROR(msg) logger_data(__LINE__, msg);
+//#define LOG_CRITICAL(Logfile, now, msg) logger_critical(Logfile, millis(), msg);
+//#define LOG_READABLE_QUATERNION
+RTC_PCF8523 rtc;
+File logfile; // for storing all log information
 #else
 #define LOG_START(Logfile, CS) 
 #define LOG_DEBUG(msg)
@@ -142,8 +148,7 @@ File myFile;
 int line_count = 0; // counts lines prior to flushing
 #endif
 
-// uncomment "RECORD_ALL" if you want to write the actual data
-// straight out of the FIFO
+
 //
 //#define OUTPUT_ALL
 //#define RECORD_ALL
@@ -405,48 +410,43 @@ void setup() {
 	pinMode(INTERRUPT_PIN_LEFT, INPUT);
 	pinMode(INTERRUPT_PIN_RIGHT, INPUT);
 
-#ifdef RECORD_READABLE_QUATERNION
-	// now set up SD card activity
-
-	Serial.print("Initializing SD card...");
+#ifdef LOGGING
+	// Set up logging
 
 	if (!SD.begin()) {
 		Serial.println("SD initialization failed!");
 		while (1);
 	}
-	Serial.println("SD initialization done.");
-	listDir(SD, "/", 0);
-	writeFile(SD, "/hello.txt", "Hello ");
-	// open the file. note that only one file can be open at a time,
-	// so you have to close this one before opening another.
-	// print the file header
-	if (SD.exists(FILENAME))
-	{
-		Serial.printf("File %s exists! ", FILENAME);
+	if (!rtc.begin()) {
+		Serial.println("Couldn't find RTC");
+		while (1);
 	}
-	else
+	DateTime now = rtc.now();
+	String date_stamp = now.timestamp(DateTime::TIMESTAMP_DATE);
+	String file_path_yyyy = String(LOGFILE);
+	file_path_yyyy.replace("yyyy", date_stamp);
+	Serial.println(file_path_yyyy);
+	// now look for an available logging file
+	for (int i = 1; i < 1000; i++)
 	{
-		Serial.printf("Creating file %s ", FILENAME);
+		char seq[4];
+		sprintf(seq, "%04d", i);
+		String filepath = file_path_yyyy;
+		filepath.replace("xxxx", seq);
+		Serial.println(filepath);
+		if (SD.exists(filepath))
+		{
+			Serial.printf("Log file: %s exists\n\r", filepath.c_str());
+		}
+		else {
+			Serial.printf("Log file: %s is available\n\r", filepath.c_str());
+			logfile = SD.open(filepath);
+			break;
+		}
 	}
-	myFile = SD.open(FILENAME, FILE_WRITE);
-	if (myFile) {
-		Serial.print("File ");
-		Serial.print(FILENAME);
-		Serial.printf(" opened for writing at position: %d\n", myFile.position());
-		Serial.printf(" %s file size: %d", myFile.name(),myFile.size());
-		myFile.seek(myFile.size());
-		Serial.printf(" opened for writing at position: %d\n", myFile.position());
-		
-		myFile.println(RECORD_HEADER);
-		myFile.flush();
 
-	}
-	else {
-		// if the file didn't open, print an error:
-		Serial.print("error opening ");
-		Serial.println(FILENAME);
-		while (true);
-	}
+#endif
+
 
 	while (!dmpReady)
 	{
@@ -494,20 +494,7 @@ void setup() {
 
 	// pinMode(LED_PIN, OUTPUT);
 
-#endif
-LOG_START(LOGFILE, SS)  //CS is chip select pin
-#ifdef LOGGING
-Serial.print("Initializing SD card...");
-
-if (!SD.begin(SS)) {
-	Serial.println("SD initialization failed!");
-	while (1);
-}
-Serial.println("SD initialization done.");
-listDir(SD, "/", 0);
-#endif
-
-}
+} // end setup()
 
 
 
@@ -623,7 +610,7 @@ void loop() {
 		Serial.println(fifoCount);
 		String msg = " FIFO overflow: "+ String(fifoCount) + ((fifoCount>83) ? "*************** over":"ok");
 		//String msg = String(tabs[0])[0] + " FIFO overflow: " + String(fifoCount);
-		LOG_ERROR(msg);
+		//LOG_ERROR(msg);
 		
 		mpu->resetFIFO();
 		fifoCount = mpu->getFIFOCount();  // will be zero after reset no need to ask
