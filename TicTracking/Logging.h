@@ -11,15 +11,18 @@
 
 #include <SD.h>
 
+
 // prototypes
-File logger_setup(char* filepath, int CS);
+File logger_setup(String filepath);
 bool logger_data(int line_no, const String msg);
 //bool logger_debug(File logfile, long milli, const String*  msg);
-//bool logger_info(File logfile, long milli, const String*  msg);
+bool logger_info(int line_no, const String msg);
 bool logger_error(int line_no, const String msg);;
 //bool logger_critical(File logfile, long milli, const String*  msg);
 bool write_log_record(int line_no, String msg, int log_lvl);
 bool write_record(const String log_record);
+
+String sardprintf(char *str, ...);
 
 //int log_lvl;
 

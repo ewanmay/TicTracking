@@ -7,16 +7,10 @@
 
 File Logfile;
 
-File logger_setup(char* filepath, int CS)
-{
-	//  set up logging to an SD card
 
-	if (!SD.begin(CS)) {
-		Serial.println("SD initialization failed!");
-		// pass the error message back in the filename
-		return SD.open("init failed", FILE_READ);
-	}
-	Logfile = SD.open(filepath, FILE_WRITE);
+File logger_setup(String filepath)
+{
+	Logfile = SD.open(filepath, FILE_WRITE); 
 	return  Logfile; // will evaluate to false if failure
 
 }
@@ -32,11 +26,11 @@ bool logger_data( int line_no, const String msg)
 //	int log_lvl = 10;
 //	return bool(write_log_record(logfile, milli, msg, log_lvl));
 //}
-//bool logger_info(File logfile, long milli, const String* msg)
-//{
-//	int log_lvl = 20;
-//	return bool(write_log_record(logfile, milli, msg, log_lvl));
-//}
+bool logger_info(int line_no, const String msg)
+{
+	int log_lvl = 20;
+	return bool(write_log_record(line_no, msg, log_lvl));
+}
 bool logger_error(int line_no, const String msg)
 {
 	int log_lvl = 30;
@@ -72,20 +66,78 @@ bool write_log_record(int line_no, String msg, int log_lvl)
 		break;
 
 	}
-	const String log_record = String(line_no) + "\t" + String(millis()) + "\t" + debug_string + "\t" + msg;
+	String log_record = String(line_no) + "\t" + String(millis()) + "\t" + debug_string + "\t" + msg;
 	return write_record(log_record);
 }
 
 
-bool write_record(const String log_record)
+bool write_record(String log_record)
 // write to logfile and return a simple boolean verification
 {
-	Serial.print("Logrecord: ");
+	Serial.print("Log:\t");
 	Serial.println(log_record);
-		char charbuf[log_record.length()];
-	log_record.toCharArray(charbuf, log_record.length());
-	int i = Logfile.println(charbuf);
+	//Serial.print(" to ");
+	//Serial.println(Logfile.name());
+	//char charbuf[log_record.length()];
+	//log_record.toCharArray(charbuf, log_record.length());
+	int i = Logfile.println(log_record);
 	Logfile.flush();
 	return  (i == log_record.length());
 }
 
+#ifndef SARDPRINTF
+#define SARDPRINTF
+#define ARDBUFFER 16
+#include <stdarg.h>
+#include <Arduino.h>
+
+String sardprintf(char *str, ...)
+{
+	int i, count = 0, j = 0, flag = 0;
+	char temp[ARDBUFFER + 1];
+	String msg = "";
+	for (i = 0; str[i] != '\0'; i++)  if (str[i] == '%')  count++;
+
+	va_list argv;
+	va_start(argv, count);
+	for (i = 0, j = 0; str[i] != '\0'; i++)
+	{
+		if (str[i] == '%')
+		{
+			temp[j] = '\0';
+			msg.concat(temp);
+			j = 0;
+			temp[0] = '\0';
+
+			switch (str[++i])
+			{
+			case 'd': msg.concat(va_arg(argv, int));
+				break;
+			case 'l': msg.concat(va_arg(argv, long));
+				break;
+			case 'f': msg.concat(va_arg(argv, double));
+				break;
+			case 'c': msg.concat((char)va_arg(argv, int));
+				break;
+			case 's': msg.concat(va_arg(argv, char *));
+				break;
+			default:;
+			};
+		}
+		else
+		{
+			temp[j] = str[i];
+			j = (j + 1) % ARDBUFFER;
+			if (j == 0)
+			{
+				temp[ARDBUFFER] = '\0';
+				msg.concat(temp);
+				temp[0] = '\0';
+			}
+		}
+	};
+	msg.concat("\n\r");
+	return msg;
+}
+#undef ARDBUFFER
+#endif

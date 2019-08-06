@@ -150,12 +150,14 @@ String Multi_MPU::printEverything()
 {
 
 	setHigh();
-	String msg = "getSleepEnabled: ";
-msg.concat(MPU6050::getSleepEnabled());
-msg.concat("\ngetTempSensorEnabled: ");
-msg.concat(MPU6050::getTempSensorEnabled());
-msg.concat("\ngetClockSource: ");
-msg.concat(MPU6050::getClockSource());
+	String msg = label;
+	msg.concat("|");
+	msg.concat("getSleepEnabled: ");
+	msg.concat(MPU6050::getSleepEnabled());
+	msg.concat("|getTempSensorEnabled: ");
+	msg.concat(MPU6050::getTempSensorEnabled());
+	msg.concat("|getClockSource: ");
+	msg.concat(MPU6050::getClockSource());
 	//Serial.print("getSleepEnabled: ");
 	//Serial.println(MPU6050::getSleepEnabled());
 	//Serial.print("getTempSensorEnabled: ");
@@ -193,26 +195,26 @@ msg.concat(MPU6050::getClockSource());
 	//Serial.print("Sample Rate: ");
 	//Serial.println(float(1000.0)/float(1+MPU6050::getRate()));
 
-	msg.concat("\n\rgetDMPEnabled: ");
+	msg.concat("|getDMPEnabled: ");
 	msg.concat(MPU6050::getDMPEnabled());
-	msg.concat("\n\rgetFIFOEnabled: ");
+	msg.concat("|getFIFOEnabled: ");
 	msg.concat(MPU6050::getFIFOEnabled());
-	msg.concat("\n\rgetI2CMasterModeEnabled: ");
+	msg.concat("|getI2CMasterModeEnabled: ");
 	msg.concat(MPU6050::getI2CMasterModeEnabled());
-	msg.concat("\n\rgetTempFIFOEnabled: ");
+	msg.concat("|getTempFIFOEnabled: ");
 	msg.concat(MPU6050::getTempFIFOEnabled());
-	msg.concat("\n\rgetXGyroFIFOEnabled: ");
+	msg.concat("|getXGyroFIFOEnabled: ");
 	msg.concat(MPU6050::getXGyroFIFOEnabled());
-	msg.concat("\n\rgetYGyroFIFOEnabled: ");
+	msg.concat("|getYGyroFIFOEnabled: ");
 	msg.concat(MPU6050::getYGyroFIFOEnabled());
-	msg.concat("\n\rgetZGyroFIFOEnabled: ");
+	msg.concat("|getZGyroFIFOEnabled: ");
 	msg.concat(MPU6050::getZGyroFIFOEnabled());
-	msg.concat("\n\rgetAccelFIFOEnabled: ");
+	msg.concat("|getAccelFIFOEnabled: ");
 	msg.concat(MPU6050::getAccelFIFOEnabled());
-	msg.concat("\n\rSample Rate: ");
+	msg.concat("|Sample Rate: ");
 	msg.concat(float(1000.0) / float(1 + MPU6050::getRate()));
 	msg.concat("\n\r");
-	Serial.print(msg);
+	//Serial.print(msg);
 
 	setLow();
 	return msg;

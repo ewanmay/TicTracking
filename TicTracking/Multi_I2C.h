@@ -32,7 +32,8 @@ public:
 	void setHigh();
 	void setDMPEnabled(bool enabled);
 	void setRate(uint8_t rate);
-	char* label;
+	char* label; // a short descriptive label like "Right"
+	char* prefix; //single character label like "R"
 
 
 	

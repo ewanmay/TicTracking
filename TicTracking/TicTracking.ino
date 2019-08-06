@@ -2,45 +2,11 @@
 // 6/21/2012 by Jeff Rowberg <jeff@rowberg.net>
 // Updates should (hopefully) always be available at https://github.com/jrowberg/i2cdevlib
 //
-// Changelog:
-//      2019-07-08 - Added Auto Calibration and offset generator
-//		   - and altered FIFO retrieval sequence to avoid using blocking code
-//      2016-04-18 - Eliminated a potential infinite loop
-//      2013-05-08 - added seamless Fastwire support
-//                 - added note about gyro calibration
-//      2012-06-21 - added note about Arduino 1.0.1 + Leonardo compatibility error
-//      2012-06-20 - improved FIFO overflow handling and simplified read process
-//      2012-06-19 - completely rearranged DMP initialization code and simplification
-//      2012-06-13 - pull gyro and accel data from FIFO packet instead of reading directly
-//      2012-06-09 - fix broken FIFO read sequence and change interrupt detection to RISING
-//      2012-06-05 - add gravity-compensated initial reference frame acceleration output
-//                 - add 3D math helper file to DMP6 example sketch
-//                 - add Euler output and Yaw/Pitch/Roll output formats
-//      2012-06-04 - remove accel offset clearing for better results (thanks Sungon Lee)
-//      2012-06-01 - fixed gyro sensitivity to be 2000 deg/sec instead of 250
-//      2012-05-30 - basic DMP initialization working
+
 
 /* ============================================
 I2Cdev device library code is placed under the MIT license
-Copyright (c) 2012 Jeff Rowberg
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
 ===============================================
 */
 
@@ -62,14 +28,16 @@ THE SOFTWARE.
  * option switches
  *
  *****************************************************************************/
-#define TIMING
- //#define LOGGING
+//#define TIMING
+ #define LOGGING
+#define LOGFILE "/Logs/Log xxxx - yyyy.txt"  //where xxxx = date and yyyy = daily sequence
+String msg;
 
 #define SAMPLE_RATE 50
 #define GYRO_RATE 1000
 
 #define RECORD_READABLE_QUATERNION
-#define OUTPUT_READABLE_QUATERNION
+// #define OUTPUT_READABLE_QUATERNION
 //#define OUTPUT_ALL
 //#define RECORD_ALL // uncomment "RECORD_ALL" if you want to write the actual data straight out of the FIFO
 
@@ -80,39 +48,40 @@ THE SOFTWARE.
  * Timing measurement
  *
  *****************************************************************************/
-#define TIMING
-#define LOGFILE "/Log xxxx - yyyy.txt"  //where xxxx = date and yyyy = daily sequence
-#ifdef TIMING
+
 long start = 0; // defines top of loop
+#ifdef TIMING
 #define TIME_START start=millis();
 #define TIME_EVENT(msg) record_time(#msg,millis(), __LINE__, start);
+	
+
+#else
+#define TIME_START
+#define TIME_EVENT(msg) 
+
+#endif
 void record_time(String msg, long time, int line_no, long start)
 {
 	String record = String(line_no);
 	record.concat("\t");
 	record.concat(time);
 	record.concat("\t");
-	record.concat(time-start);
+	record.concat(time - start);
 	record.concat("\t");
 	record.concat(msg);
+#ifdef TIMING
 	Serial.println(record);
-}
-	
-
-#else
-#define TIME_START
-#define TIME_EVENT (msg) 
-
 #endif
+}
 
 /*****************************************************************************
  *
  * Logging
  *
  *****************************************************************************/
-#define LOGGING
-#define LOGFILE "/Logs/Log yyyy-xxxx.txt" //yyyy is date and xxxx is sequence
-
+RTC_PCF8523 rtc;
+File logfile; // for storing all log information
+String filepath;
 
 #ifdef LOGGING
 //#include "Logging.h"
@@ -123,8 +92,7 @@ void record_time(String msg, long time, int line_no, long start)
 //#define LOG_ERROR(msg) logger_data(__LINE__, msg);
 //#define LOG_CRITICAL(Logfile, now, msg) logger_critical(Logfile, millis(), msg);
 //#define LOG_READABLE_QUATERNION
-RTC_PCF8523 rtc;
-File logfile; // for storing all log information
+
 #else
 #define LOG_START(Logfile, CS) 
 #define LOG_DEBUG(msg)
@@ -142,7 +110,6 @@ File logfile; // for storing all log information
 //#define RECORD_READABLE_QUATERNION
 #ifdef RECORD_READABLE_QUATERNION
 #define RECORD_HEADER "mSec, w, x, y, z"
-#define FILENAME "/test.csv"
 #define FLUSH_LIMIT 20
 File myFile;
 int line_count = 0; // counts lines prior to flushing
@@ -154,7 +121,6 @@ int line_count = 0; // counts lines prior to flushing
 //#define RECORD_ALL
 #ifdef RECORD_ALL
 #define RECORD_HEADER "mSec, qw, qx, qy, qz, ax, ay, az, gx, gy, gz"
-#define FILENAME "test.csv"
 #define FLUSH_LIMIT 20
 int line_count = 0; // counts lines prior to flushing
 #endif
@@ -216,6 +182,7 @@ Multi_MPU *mpu;
 // uncomment "OUTPUT_TEAPOT" if you want output that matches the
 // format used for the InvenSense teapot demo
 //#define OUTPUT_TEAPOT
+
 bool blinkState = false;
 
 // MPU control/status vars
@@ -270,6 +237,23 @@ void dmpDataReadyLeft() {
 	Serial.print("li-");
 	Serial.println(millis());
 #endif
+}
+
+String getstring()
+{
+	// return a String from the keyboard
+	String msg = "";
+	while (Serial.available() > 0){
+		int incomingchar = Serial.read();
+		switch (incomingchar)
+		{
+		case 13: //carriage return
+			return msg;
+		case 8: //backspace
+			msg.remove(msg.length() - 1, 1);
+		}
+	}
+	return msg;
 }
 
 // ================================================================
@@ -393,17 +377,8 @@ void setup() {
 	Fastwire::setup(400, true);
 #endif
 
-	// initialize serial communication
-	// (115200 chosen because it is required for Teapot Demo output, but it's
-	// really up to you depending on your project)
-	Serial.begin(921600);
+	Serial.begin(230400);
 	while (!Serial); // wait for Leonardo enumeration, others continue immediately
-
-	// NOTE: 8MHz or slower host processors, like the Teensy @ 3.3V or Arduino
-	// Pro Mini running at 3.3V, cannot handle this baud rate reliably due to
-	// the baud timing being too misaligned with processor ticks. You must use
-	// 38400 or slower in these cases, or use some kind of external separate
-	// crystal solution for the UART timer.
 
 	pinMode(AD0_PIN_LEFT, OUTPUT);
 	pinMode(AD0_PIN_RIGHT, OUTPUT);
@@ -417,33 +392,60 @@ void setup() {
 		Serial.println("SD initialization failed!");
 		while (1);
 	}
+	else{
+		Serial.println("SD initialization success");
+	}
 	if (!rtc.begin()) {
 		Serial.println("Couldn't find RTC");
 		while (1);
 	}
+	else {
+		Serial.println("RTC initialization success");
+	}
+	// now get the time and prepare a log file.  First, turn off the MPU6050's by moving their I2C addresses to
+	// the higher value AD0
+	digitalWrite(AD0_PIN_LEFT, HIGH);
+	digitalWrite(AD0_PIN_LEFT, HIGH);
 	DateTime now = rtc.now();
 	String date_stamp = now.timestamp(DateTime::TIMESTAMP_DATE);
 	String file_path_yyyy = String(LOGFILE);
-	file_path_yyyy.replace("yyyy", date_stamp);
-	Serial.println(file_path_yyyy);
+	file_path_yyyy.replace("xxxx", date_stamp);
+
 	// now look for an available logging file
 	for (int i = 1; i < 1000; i++)
 	{
 		char seq[4];
 		sprintf(seq, "%04d", i);
-		String filepath = file_path_yyyy;
-		filepath.replace("xxxx", seq);
-		Serial.println(filepath);
+		filepath = file_path_yyyy;
+		filepath.replace("yyyy", seq);
+		//Serial.println(filepath);
 		if (SD.exists(filepath))
 		{
-			Serial.printf("Log file: %s exists\n\r", filepath.c_str());
+			Serial.printf("Log file: %s exists. Will try another...\n\r", filepath.c_str());
 		}
 		else {
 			Serial.printf("Log file: %s is available\n\r", filepath.c_str());
-			logfile = SD.open(filepath);
+			logger_setup(filepath);
+			//logfile = SD.open(filepath,FILE_WRITE);
 			break;
 		}
 	}
+	// put some initial entries into the file
+	msg = "Opening " + filepath + " at " + now.timestamp();
+	logger_info(__LINE__, msg);
+
+#if 0 //TODO get this to work
+	Serial.println("Input description for this trial run (return or ignore for none) :");
+	//Serial.setTimeout(3000); //3 seconds to wait for input
+	while (Serial.available() == 0) {}       //Wait for user input
+	Serial.println(Serial.available());
+	msg = Serial.readString();
+	//msg = "<none>";
+	//String temp =  Serial.readString();
+	msg = getstring();
+	if (msg.length() == 0) { msg = "<none provided>"; }
+	logger_info(__LINE__, msg);
+#endif
 
 #endif
 
@@ -454,7 +456,12 @@ void setup() {
 		Serial.println(F("Initializing I2C devices..."));
 		// Serial.println(mpu_left.getDeviceID());
 		mpu_left.initialize();
+		mpu_left.label = "Left ";
+		mpu_left.prefix = "L";
+
 		mpu_right.initialize();
+		mpu_right.prefix = "R";
+		mpu_right.label = "Right ";
 
 		Serial.println(mpu_left.getDeviceID());
 		Serial.println(mpu_right.getDeviceID());
@@ -488,9 +495,11 @@ void setup() {
 	mpu_left.setRate(smplrt_div);
 	mpu_right.setRate(smplrt_div);
 
-	Serial.println("Initial DMP config ------------");
-	mpu_left.printEverything();
-	mpu_right.printEverything();
+	logger_info(__LINE__, "Initial DMP config ------------");
+	logger_info(__LINE__, mpu_left.printEverything());
+	logger_info(__LINE__, mpu_right.printEverything());
+	//mpu_left.printEverything();
+	//mpu_right.printEverything();
 
 	// pinMode(LED_PIN, OUTPUT);
 
@@ -514,8 +523,8 @@ void loop() {
 
 	// wait for MPU interrupt or extra packet(s) available
 	TIME_START
-		record_time("loop start", millis(), __LINE__, start);
-		//TIME_EVENT"loop start"
+	record_time("loop start", millis(), __LINE__, start);
+	//TIME_EVENT"loop start"
 	int loopCounter = 0;
 	char* tabs = "R\t\t\t\t\t";
 	// Serial.println("Entering the loop of death");
@@ -525,10 +534,9 @@ void loop() {
 		// Serial.println(readLeft);
 		if (fifoCount_right >= 42 && mpuInterruptRight && !readLeft)
 		{
-			// Serial.println("Right accelerometer");
+			// Data ready on the right
 			mpuInterruptRight = false;
 			mpu = &mpu_right;
-			tabs = "L ";
 			readLeft = true;
 			loopCounter = 0;
 			break;
@@ -536,9 +544,10 @@ void loop() {
 
 		if (fifoCount_left >= 42 && mpuInterruptLeft && readLeft)
 		{
-			// Serial.println("Left accelerometer");
+			// Data ready on the left
 			mpuInterruptLeft = false;
-			mpu = &mpu_left;			
+			mpu = &mpu_left;
+			tabs = "L ";
 			readLeft = false;
 			loopCounter = 0;
 			break;
@@ -550,7 +559,7 @@ void loop() {
 		//	Serial.print("resetting fifo");
 		//}
 		//Serial.print(".");
-#if 0 // skip over this but don't comment it out
+#if 0 // skip over this troubleshooting stuff but don't comment it out
 		Serial.print((readLeft) ? "L" : "R"); 
 		Serial.print(" r/l: ");
 		Serial.print(fifoCount_right);
@@ -570,17 +579,21 @@ void loop() {
 		loopCounter++;
 		if (loopCounter > 180)
 		{
-			myFile.println("Right");
-			myFile.println(mpu_right.printEverything());
-			myFile.println("Left");
-			myFile.println(mpu_left.printEverything());
-			Serial.println("R");
-			mpu_right.printEverything();
-			Serial.println("L");
-			mpu_left.printEverything();
+			logger_error(__LINE__, "Too long in interrupt wait loop.  Dumping accelerometers ------------");
+			logger_error(__LINE__, mpu_left.printEverything());
+			logger_error(__LINE__, mpu_right.printEverything());
+			//myFile.println("Right");
+			//myFile.println(mpu_right.printEverything());
+			//myFile.println("Left");
+			//myFile.println(mpu_left.printEverything());
+			//Serial.println("R");
+			//mpu_right.printEverything();
+			//Serial.println("L");
+			//mpu_left.printEverything();
 			
 			loopCounter = 0;
 			// TODO fix this problem - the following codes is a KLUGE
+			logger_error(__LINE__, "Re-enabling DMP's");
 			mpu_left.setDMPEnabled(true);
 			mpu_right.setDMPEnabled(true);
 		}
@@ -595,7 +608,7 @@ void loop() {
 	if (fifoCount < packetSize) {
 
 		Serial.println("Mismatch fifo size!");
-		myFile.println("Mismatch fifo size!");
+		logger_error(__LINE__, ("What? fifoCount is now less than packetSize!"));
 		//Lets go back and wait for another interrupt. We shouldn't be here, we got an interrupt from another event
 		// This is blocking so don't do it   while (fifoCount < packetSize) fifoCount = mpu.getFIFOCount();
 	}
@@ -605,18 +618,17 @@ void loop() {
 		// mpu_right.resetFIFO();
 		// mpu_left.resetFIFO();
 		
-		Serial.print(tabs);
-		Serial.print(F("FIFO overflow: "));
-		Serial.println(fifoCount);
-		String msg = " FIFO overflow: "+ String(fifoCount) + ((fifoCount>83) ? "*************** over":"ok");
-		//String msg = String(tabs[0])[0] + " FIFO overflow: " + String(fifoCount);
-		//LOG_ERROR(msg);
-		
+		//Serial.print(tabs);
+		//Serial.print(F("FIFO overflow: "));
+		//Serial.println(fifoCount);
+		String msg = String(mpu->prefix) + " FIFO overflow: "+ String(fifoCount) + ((fifoCount>83) ? "*************** over":"ok");
+		logger_error(__LINE__, msg);
+
 		mpu->resetFIFO();
 		fifoCount = mpu->getFIFOCount();  // will be zero after reset no need to ask
 		//Serial.println(fifoCount);
 		
-		// otherwise, check for DMP data ready interrupt (this should happen frequently)
+		
 	}
 	else if (mpuIntStatus & _BV(MPU6050_INTERRUPT_DMP_INT_BIT)) {
 		// read a packet from FIFO
@@ -634,30 +646,35 @@ void loop() {
 #ifdef RECORD_READABLE_QUATERNION
 		// write quaternion values in easy matrix form: w x y z
 		mpu->dmpGetQuaternion(&q, fifoBuffer);
-		if ((q.w * q.w + q.y * q.y + q.x * q.x + q.z * q.z) > 1.0)
+		if ((q.w * q.w + q.y * q.y + q.x * q.x + q.z * q.z) > 1.05)
 		{
+			logger_error(__LINE__, sardprintf("%s quaternion out of range.  Resetting FIFO", mpu->prefix));
+			logger_error(__LINE__, sardprintf("%s,%f,%f,%f,%f", mpu->prefix, q.w, q.x, q.y, q.z));
 			mpu->resetFIFO();
 		}
 		else
 		{
-			myFile.print(millis());
-			myFile.print(",");
-			myFile.print(String(tabs[0])[0]);
-			myFile.print(",");
-			myFile.print(q.w);
-			myFile.print(",");
-			myFile.print(q.x);
-			myFile.print(",");
-			myFile.print(q.y);
-			myFile.print(",");
-			myFile.println(q.z);
-			line_count++;
+			logger_data(__LINE__, sardprintf("%s,%f,%f,%f,%f", mpu->prefix, q.w, q.x, q.y, q.z));
 
-			if (line_count >= FLUSH_LIMIT) {
-				// write the lines into the SD card if at FLUSH_LIMIT
-				myFile.flush();
-				line_count = 0;
-			}
+			//myFile.print(",");
+			//myFile.print(millis());
+			//myFile.print(",");
+			//myFile.print(String(tabs[0])[0]);
+			//myFile.print(",");
+			//myFile.print(q.w);
+			//myFile.print(",");
+			//myFile.print(q.x);
+			//myFile.print(",");
+			//myFile.print(q.y);
+			//myFile.print(",");
+			//myFile.println(q.z);
+			//line_count++;
+
+			//if (line_count >= FLUSH_LIMIT) {
+			//	// write the lines into the SD card if at FLUSH_LIMIT
+			//	myFile.flush();
+			//	line_count = 0;
+			//}
 		}
 #endif
 
