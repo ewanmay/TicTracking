@@ -72,10 +72,11 @@ bool write_log_record(int line_no, String msg, int log_lvl)
 
 
 bool write_record(String log_record)
-// write to logfile and return a simple boolean verification
+// write to Logfile and return a simple boolean verification
 {
 	Serial.print("Log:\t");
 	Serial.println(log_record);
+	// TODO figure out what to do when ndef LOGGING.  Turn all off or just no file write?
 	//Serial.print(" to ");
 	//Serial.println(Logfile.name());
 	//char charbuf[log_record.length()];
@@ -87,7 +88,7 @@ bool write_record(String log_record)
 
 #ifndef SARDPRINTF
 #define SARDPRINTF
-#define ARDBUFFER 16
+#define ARDBUFFER 80
 #include <stdarg.h>
 #include <Arduino.h>
 
@@ -136,7 +137,7 @@ String sardprintf(char *str, ...)
 			}
 		}
 	};
-	msg.concat("\n\r");
+	//msg.concat("\r\n");
 	return msg;
 }
 #undef ARDBUFFER

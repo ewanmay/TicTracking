@@ -211,9 +211,13 @@ String Multi_MPU::printEverything()
 	msg.concat(MPU6050::getZGyroFIFOEnabled());
 	msg.concat("|getAccelFIFOEnabled: ");
 	msg.concat(MPU6050::getAccelFIFOEnabled());
+	msg.concat("|dmpGetFIFOPacketSize: ");
+	msg.concat(MPU6050::dmpGetFIFOPacketSize());
 	msg.concat("|Sample Rate: ");
 	msg.concat(float(1000.0) / float(1 + MPU6050::getRate()));
-	msg.concat("\n\r");
+	//msg.concat("|dmpGetFIFORate: ");
+	//msg.concat(MPU6050::dmpGetFIFORate());
+	msg.concat("\r\n");
 	//Serial.print(msg);
 
 	setLow();

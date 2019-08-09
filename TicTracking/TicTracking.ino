@@ -28,12 +28,13 @@ I2Cdev device library code is placed under the MIT license
  * option switches
  *
  *****************************************************************************/
-//#define TIMING
- #define LOGGING
+#define TIMING
+//#define LOGGING
 #define LOGFILE "/Logs/Log xxxx - yyyy.txt"  //where xxxx = date and yyyy = daily sequence
 String msg;
 
 #define SAMPLE_RATE 50
+#define WAIT_TIMEOUT_MS  1000/SAMPLE_RATE * 2 //timeout interval (mS) waiting for interrupt from accelerometer
 #define GYRO_RATE 1000
 
 #define RECORD_READABLE_QUATERNION
@@ -516,7 +517,8 @@ void setup() {
 void loop() {
 
 	// Serial.println("Starting loop");
-	if (!dmpReady) {
+	if (!dmpReady)
+	{
 		Serial.println("Something dun fucked up");
 		return;
 	}
@@ -525,10 +527,13 @@ void loop() {
 	TIME_START
 	record_time("loop start", millis(), __LINE__, start);
 	//TIME_EVENT"loop start"
-	int loopCounter = 0;
+	
 	char* tabs = "R\t\t\t\t\t";
-	// Serial.println("Entering the loop of death");
-	while (true) {
+	long loop_start = millis(); // for calculating wait timeout
+
+	//readLeft = false; //TODO remove this.  It forces system to read only one accelerometer
+	while (true)
+	{
 		fifoCount_left = mpu_left.getFIFOCount();
 		fifoCount_right = mpu_right.getFIFOCount();
 		// Serial.println(readLeft);
@@ -538,7 +543,6 @@ void loop() {
 			mpuInterruptRight = false;
 			mpu = &mpu_right;
 			readLeft = true;
-			loopCounter = 0;
 			break;
 		}
 
@@ -549,7 +553,6 @@ void loop() {
 			mpu = &mpu_left;
 			tabs = "L ";
 			readLeft = false;
-			loopCounter = 0;
 			break;
 		}
 
@@ -576,12 +579,13 @@ void loop() {
 		Serial.print(((fifoCount_left >= 42 && mpuInterruptLeft && readLeft)) ? "GoL" : "Lx");
 		Serial.println("|");
 #endif
-		loopCounter++;
-		if (loopCounter > 180)
+		if (millis() - loop_start > WAIT_TIMEOUT_MS) //WAIT_TIMEOUT_MS
 		{
 			logger_error(__LINE__, "Too long in interrupt wait loop.  Dumping accelerometers ------------");
 			logger_error(__LINE__, mpu_left.printEverything());
 			logger_error(__LINE__, mpu_right.printEverything());
+			loop_start = millis(); //reset loop_start to wait again
+
 			//myFile.println("Right");
 			//myFile.println(mpu_right.printEverything());
 			//myFile.println("Left");
@@ -590,10 +594,9 @@ void loop() {
 			//mpu_right.printEverything();
 			//Serial.println("L");
 			//mpu_left.printEverything();
-			
-			loopCounter = 0;
+
 			// TODO fix this problem - the following codes is a KLUGE
-			logger_error(__LINE__, "Re-enabling DMP's");
+			logger_error(__LINE__, "Interrupt wait timeout.  Re-enabling DMP's");
 			mpu_left.setDMPEnabled(true);
 			mpu_right.setDMPEnabled(true);
 		}
@@ -605,36 +608,40 @@ void loop() {
 	fifoCount = mpu->getFIFOCount();
 	// Serial.println("Fifo retrieved!");
 	// Serial.println(fifoCount);
-	if (fifoCount < packetSize) {
-
+	if (fifoCount < packetSize)
+	{
 		Serial.println("Mismatch fifo size!");
 		logger_error(__LINE__, ("What? fifoCount is now less than packetSize!"));
 		//Lets go back and wait for another interrupt. We shouldn't be here, we got an interrupt from another event
 		// This is blocking so don't do it   while (fifoCount < packetSize) fifoCount = mpu.getFIFOCount();
 	}
-	// check for overflow (this should never happen unless our code is too inefficient)
-	else if ((mpuIntStatus & _BV(MPU6050_INTERRUPT_FIFO_OFLOW_BIT)) || fifoCount >= 1024) {
+		// check for overflow (this should never happen unless our code is too inefficient)
+	else if ((mpuIntStatus & _BV(MPU6050_INTERRUPT_FIFO_OFLOW_BIT)) || fifoCount >= 1024)
+	{
 		// reset so we can continue cleanly
 		// mpu_right.resetFIFO();
 		// mpu_left.resetFIFO();
-		
+
 		//Serial.print(tabs);
 		//Serial.print(F("FIFO overflow: "));
 		//Serial.println(fifoCount);
-		String msg = String(mpu->prefix) + " FIFO overflow: "+ String(fifoCount) + ((fifoCount>83) ? "*************** over":"ok");
+		String msg = String(mpu->prefix) + " FIFO overflow: " + String(fifoCount) + ((fifoCount > 83)
+			                                                                             ? "*************** over"
+			                                                                             : "ok");
 		logger_error(__LINE__, msg);
 
 		mpu->resetFIFO();
-		fifoCount = mpu->getFIFOCount();  // will be zero after reset no need to ask
+		fifoCount = mpu->getFIFOCount(); // will be zero after reset no need to ask
 		//Serial.println(fifoCount);
-		
-		
 	}
-	else if (mpuIntStatus & _BV(MPU6050_INTERRUPT_DMP_INT_BIT)) {
+	else if (mpuIntStatus & _BV(MPU6050_INTERRUPT_DMP_INT_BIT))
+	{
 		// read a packet from FIFO
-		String msg = "fetching FIFO: "+ String(fifoCount);
+		String msg = "fetching FIFO: " + String(fifoCount);
 		record_time(msg, millis(), __LINE__, start);
-		while (fifoCount >= packetSize) { // Lets catch up to NOW, someone is using the dreaded delay()!
+		while (fifoCount >= packetSize)
+		{
+			// Lets catch up to NOW, someone is using the dreaded delay()!
 			mpu->getFIFOBytes(fifoBuffer, packetSize);
 			// track FIFO count here in case there is > 1 packet available
 			// (this lets us immediately read more without waiting for an interrupt)
@@ -832,6 +839,6 @@ void loop() {
 		Serial.write(teapotPacket, 14);
 		teapotPacket[11]++; // packetCount, loops at 0xFF on purpose
 #endif
-// blink LED to indicate activity
-}
+		// blink LED to indicate activity
+	}
 }
