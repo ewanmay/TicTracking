@@ -110,6 +110,9 @@
     <DebuggerFlavor>VisualMicroDebugger</DebuggerFlavor>
   </PropertyGroup>
   <ItemGroup>
+    <None Include="sleep.ino">
+      <FileType>CppCode</FileType>
+    </None>
     <None Include="TicTracking.ino">
       <FileType>CppCode</FileType>
     </None>

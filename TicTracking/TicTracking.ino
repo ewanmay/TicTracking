@@ -33,7 +33,7 @@ I2Cdev device library code is placed under the MIT license
 #define LOGFILE "/Logs/Log xxxx - yyyy.txt"  //where xxxx = date and yyyy = daily sequence
 String msg;
 
-#define SAMPLE_RATE 50
+#define SAMPLE_RATE 20
 #define WAIT_TIMEOUT_MS  1000/SAMPLE_RATE * 2 //timeout interval (mS) waiting for interrupt from accelerometer
 #define GYRO_RATE 1000
 
@@ -556,12 +556,28 @@ void loop() {
 			break;
 		}
 
-		//if(fifoCount_left == 0)
-		//{
-		//	mpu_left.resetFIFO();
-		//	Serial.print("resetting fifo");
-		//}
-		//Serial.print(".");
+	// we're going to loop and wait for an interrupt.  Let's try sleeping
+#define uS_TO_mS_FACTOR 1000  /* Conversion factor for micro seconds to milliseconds */
+#define TIME_TO_SLEEP  1 
+		esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_mS_FACTOR);
+		//Serial.println(sardprintf("z-%d",micros()));
+		esp_light_sleep_start();
+#if 0
+		esp_sleep_wakeup_cause_t wakeup_reason;
+
+		wakeup_reason = esp_sleep_get_wakeup_cause();
+
+		switch (wakeup_reason)
+		{
+		case ESP_SLEEP_WAKEUP_EXT0: Serial.println("Wakeup caused by external signal using RTC_IO"); break;
+		case ESP_SLEEP_WAKEUP_EXT1: Serial.println("Wakeup caused by external signal using RTC_CNTL"); break;
+		case ESP_SLEEP_WAKEUP_TIMER: Serial.println("Wakeup caused by timer"); break;
+		case ESP_SLEEP_WAKEUP_TOUCHPAD: Serial.println("Wakeup caused by touchpad"); break;
+		case ESP_SLEEP_WAKEUP_ULP: Serial.println("Wakeup caused by ULP program"); break;
+		default: Serial.printf("Wakeup was not caused by deep sleep: %d\n", wakeup_reason); break;
+		}
+#endif
+
 #if 0 // skip over this troubleshooting stuff but don't comment it out
 		Serial.print((readLeft) ? "L" : "R"); 
 		Serial.print(" r/l: ");
