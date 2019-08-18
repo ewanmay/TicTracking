@@ -15,6 +15,7 @@
 #define _VSARDUINO_H_
 #define __ESP32_esp32__
 #define __ESP32_ESP32__
+#define _VMDEBUG 1
 #define ESP_PLATFORM
 #define HAVE_CONFIG_H
 #define F_CPU 240000000L
@@ -104,6 +105,6 @@ typedef long pthread_cond_t;
 #define interrupts() sei()
 #define noInterrupts() cli()
 
-#include "TicTracking.ino"
+#include "sleeping.ino"
 #endif
 #endif

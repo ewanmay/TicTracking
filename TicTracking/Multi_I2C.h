@@ -25,15 +25,19 @@ public:
 	uint16_t dmpGetFIFOPacketSize();
 	void CalibrateGyro(int Loops = 6); // Fine tune after setting offsets with less Loops.
 	void CalibrateAccel(int Loops = 6); // Fine tune after setting offsets with less Loops
-	//
-	// void PrintActiveOffsets(); // See the results of the Calibration
-	String printEverything();
-	void setLow();
-	void setHigh();
+	void PrintActiveOffsets();
 	void setDMPEnabled(bool enabled);
 	void setRate(uint8_t rate);
+
+	uint8_t getIntPinBypassReg();
+	void readMemoryBlock(uint8_t *data, uint16_t dataSize, uint8_t bank = 0, uint8_t address = 0); //read memory
+	String getStatusString();
+	void setLow();
+	void setHigh();
+
 	char* label; // a short descriptive label like "Right"
 	char* prefix; //single character label like "R"
+	String init_status_string; //a String of getStatusString at startup.  for integrity checking
 
 
 	

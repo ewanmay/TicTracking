@@ -1,4 +1,5 @@
 #include "Multi_I2C.h"
+
 Multi_MPU::Multi_MPU(int ad0Pin, uint8_t address)
 	: MPU6050(address), ad0Pin(ad0Pin){ };
 
@@ -146,79 +147,72 @@ void Multi_MPU::setRate(uint8_t rate)
 	setLow();
 }
 
-String Multi_MPU::printEverything()
+void Multi_MPU::PrintActiveOffsets()
 {
-
 	setHigh();
+	MPU6050::PrintActiveOffsets();
+	setLow();
+}
+//
+// Get interrupt config: latching, levels etc
+//
+uint8_t Multi_MPU::getIntPinBypassReg() {
+	uint8_t buffer[14];
+	setHigh();
+	I2Cdev::readByte(getDeviceID(), MPU6050_RA_INT_PIN_CFG, buffer);
+	setLow();
+	return buffer[0];
+}
+
+void Multi_MPU::readMemoryBlock(uint8_t *data, uint16_t dataSize, uint8_t bank, uint8_t address)
+{
+	setHigh();
+	MPU6050::readMemoryBlock(data, dataSize, bank, address);
+	setLow();
+}; //read memory
+
+String Multi_MPU::getStatusString()
+{
+	setHigh();
+
 	String msg = label;
-	msg.concat("|");
+	//msg.concat("|");
 	msg.concat("getSleepEnabled: ");
 	msg.concat(MPU6050::getSleepEnabled());
 	msg.concat("|getTempSensorEnabled: ");
 	msg.concat(MPU6050::getTempSensorEnabled());
 	msg.concat("|getClockSource: ");
 	msg.concat(MPU6050::getClockSource());
-	//Serial.print("getSleepEnabled: ");
-	//Serial.println(MPU6050::getSleepEnabled());
-	//Serial.print("getTempSensorEnabled: ");
-	//Serial.println(MPU6050::getTempSensorEnabled());
-	//Serial.print("getClockSource: ");
-	//Serial.println(MPU6050::getClockSource());
-	//Serial.print("getAccelerationX: ");
-	//Serial.println(MPU6050::getAccelerationX());
-	//Serial.print("getAccelerationY: ");
-	//Serial.println(MPU6050::getAccelerationY());
-	//Serial.print("getAccelerationZ: ");
-	//Serial.println(MPU6050::getAccelerationZ());
-	//Serial.print("getRotationX: ");
-	//Serial.println(MPU6050::getRotationX());
-	//Serial.print("getRotationY: ");
-	//Serial.println(MPU6050::getRotationY());
-	//Serial.print("getRotationZ: ");
-	//Serial.println(MPU6050::getRotationZ());
-	//Serial.print("getDMPEnabled: ");
-	//Serial.println(MPU6050::getDMPEnabled());
-	//Serial.print("getFIFOEnabled: ");
-	//Serial.println(MPU6050::getFIFOEnabled());
-	//Serial.print("getI2CMasterModeEnabled: ");
-	//Serial.println(MPU6050::getI2CMasterModeEnabled());
-	//Serial.print("getTempFIFOEnabled: ");
-	//Serial.println(MPU6050::getTempFIFOEnabled());
-	//Serial.print("getXGyroFIFOEnabled: ");
-	//Serial.println(MPU6050::getXGyroFIFOEnabled());
-	//Serial.print("getYGyroFIFOEnabled: ");
-	//Serial.println(MPU6050::getYGyroFIFOEnabled());
-	//Serial.print("getZGyroFIFOEnabled: ");
-	//Serial.println(MPU6050::getZGyroFIFOEnabled());
-	//Serial.print("getAccelFIFOEnabled: ");
-	//Serial.println(MPU6050::getAccelFIFOEnabled());
-	//Serial.print("Sample Rate: ");
-	//Serial.println(float(1000.0)/float(1+MPU6050::getRate()));
-
 	msg.concat("|getDMPEnabled: ");
-	msg.concat(MPU6050::getDMPEnabled());
+	msg.concat(getDMPEnabled());
 	msg.concat("|getFIFOEnabled: ");
-	msg.concat(MPU6050::getFIFOEnabled());
+	msg.concat(getFIFOEnabled());
+	msg.concat("|getIntPinBypassReg: (hex)");
+	msg.concat(String(getIntPinBypassReg(), HEX));
+	msg.concat("|getInterruptLatchClear: ");
+	msg.concat(getInterruptLatchClear());
 	msg.concat("|getI2CMasterModeEnabled: ");
-	msg.concat(MPU6050::getI2CMasterModeEnabled());
+	msg.concat(getI2CMasterModeEnabled());
 	msg.concat("|getTempFIFOEnabled: ");
-	msg.concat(MPU6050::getTempFIFOEnabled());
+	msg.concat(getTempFIFOEnabled());
 	msg.concat("|getXGyroFIFOEnabled: ");
-	msg.concat(MPU6050::getXGyroFIFOEnabled());
+	msg.concat(getXGyroFIFOEnabled());
 	msg.concat("|getYGyroFIFOEnabled: ");
-	msg.concat(MPU6050::getYGyroFIFOEnabled());
+	msg.concat(getYGyroFIFOEnabled());
 	msg.concat("|getZGyroFIFOEnabled: ");
-	msg.concat(MPU6050::getZGyroFIFOEnabled());
+	msg.concat(getZGyroFIFOEnabled());
 	msg.concat("|getAccelFIFOEnabled: ");
-	msg.concat(MPU6050::getAccelFIFOEnabled());
+	msg.concat(getAccelFIFOEnabled());
 	msg.concat("|dmpGetFIFOPacketSize: ");
-	msg.concat(MPU6050::dmpGetFIFOPacketSize());
+	msg.concat(dmpGetFIFOPacketSize());
+	//msg.concat("|Sample Rate Divider: ");
+	//msg.concat( getRate());
+	msg.concat("|getIntEnabled: (hex)");
+	msg.concat(String(getIntEnabled(), HEX));
+	getIntEnabled();
+
 	msg.concat("|Sample Rate: ");
-	msg.concat(float(1000.0) / float(1 + MPU6050::getRate()));
-	//msg.concat("|dmpGetFIFORate: ");
-	//msg.concat(MPU6050::dmpGetFIFORate());
-	msg.concat("\r\n");
-	//Serial.print(msg);
+	msg.concat(float(1000.0) / float(1 + getRate()));
 
 	setLow();
 	return msg;
