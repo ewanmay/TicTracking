@@ -987,38 +987,30 @@ void loop()
 
 #ifdef RECORD_ALL
 		// write the entire FIFO
+	{
 		mpu->dmpGetAccel(&aa, fifoBuffer);
-		mpu->dmpGetGyro(&gg, fifoBuffer);
+		// mpu->dmpGetGyro(&gg, fifoBuffer);
 		mpu->dmpGetQuaternion(&q, fifoBuffer);
-		myFile.print(millis());
-		myFile.print(",");
-		myFile.print(q.w);
-		myFile.print(",");
-		myFile.print(q.x);
-		myFile.print(",");
-		myFile.print(q.y);
-		myFile.print(",");
-		myFile.print(q.z);
-		myFile.print(",");
+		if (std::sqrt(q.w * q.w + q.y * q.y + q.x * q.x + q.z * q.z) > 1.05)
+		{
+			logger_error(__LINE__, sardprintf("%s quaternion out of range.  Resetting FIFO", mpu->prefix));
+			logger_error(__LINE__, sardprintf("%s,%f,%f,%f,%f", mpu->prefix, q.w, q.x, q.y, q.z));
 
-		myFile.print(aa.x);
-		myFile.print(",");
-		myFile.print(aa.y);
-		myFile.print(",");
-		myFile.print(aa.z);
-		myFile.print(",");
-
-		myFile.print(gg.x);
-		myFile.print(",");
-		myFile.print(gg.y);
-		myFile.print(",");
-		myFile.println(gg.z);
-		line_count++;
-
-		if (line_count >= FLUSH_LIMIT) {
-			// write the lines into the SD card if at FLUSH_LIMIT
-			myFile.flush();
-			line_count = 0;
+			mpu->resetFIFO();
+			fifoCount = mpu->getFIFOCount(); // will be zero after reset no need to ask
+			if (fifoCount != 0)
+			{
+				logger_error(__LINE__, sardprintf("%s FIFO *BAD* reset", mpu->label));
+			}
+			else
+			{
+				logger_info(__LINE__, sardprintf("%s FIFO reset OK", mpu->label));
+			}
+		}
+		else
+		{
+			logger_data(__LINE__, sardprintf("%s,%f,%f,%f,%f,%f,%f,%f,%f", mpu->prefix, q.w, q.x, q.y, q.z, aa.x, aa.y, aa.z));
+		}
 	}
 #endif
 
@@ -1145,7 +1137,7 @@ void loop()
 	{
 		// we have an unrecognized situation
 		logger_error(__LINE__, sardprintf(
-			             "Unrecognized DMP situation on %s side.  Interrupt init_status_string: %d  Fifocount: %d",
+			             "Unrecognized DMP situation on %s side.  Interrupt status: %d  Fifocount: %d",
 			             mpu->label, mpuIntStatus, fifoCount));
 		logger_error(__LINE__, "MPU configs ------------");
 		logger_error(__LINE__, mpu_left.getStatusString());
