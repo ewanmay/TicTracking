@@ -22,6 +22,7 @@ I2Cdev device library code is placed under the MIT license
 #include <SPI.h>
 #include <Wire.h>
 #include <RTClib.h>
+#include <cmath>
 
 /*****************************************************************************
  *
@@ -191,11 +192,11 @@ int line_count = 0; // counts lines prior to flushing
 // AD0 high = 0x69
 // MPU6050 mpu();
 
-#define INTERRUPT_PIN_LEFT 13  // use pin 2 on Arduino Uno & most boards
-#define AD0_PIN_LEFT 12  // use pin 2 on Arduino Uno & most boards
-#define INTERRUPT_PIN_RIGHT 14   // use pin 2 on Arduino Uno & most boards
-#define AD0_PIN_RIGHT 32  // use pin 2 on Arduino Uno & most boards
-// #define LED_PIN 2 // (Arduino is 13, Teensy is 11, Teensy++ is 6)
+#define INTERRUPT_PIN_LEFT 34
+#define AD0_PIN_LEFT 32
+#define INTERRUPT_PIN_RIGHT 36
+#define AD0_PIN_RIGHT 12
+
 Multi_MPU mpu_left(AD0_PIN_LEFT, 0x69); // <-- use for AD0 
 Multi_MPU mpu_right(AD0_PIN_RIGHT, 0x69); // <-- use for AD0 high
 Multi_MPU* mpu;
@@ -556,8 +557,8 @@ void setup()
 
 #ifdef LOGGING
 	// Set up logging
-	Log_Level excludes[] = {data}; //exclude data logs because it's so voluminous
-	set_logger_filter(excludes, sizeof(excludes) / sizeof(excludes[0]), 10);
+	//Log_Level excludes[] = {data}; //exclude printing data logs because so voluminous
+	//set_logger_filter(excludes, sizeof(excludes) / sizeof(excludes[0]), 10);
 	if (!SD.begin())
 	{
 		Serial.println("SD initialization failed! ... stopping");
@@ -635,6 +636,15 @@ void setup()
 
 	while (!dmpReady)
 	{
+		// verify connection
+		//Serial.println(F("Testing device connections..."));
+		Serial.println(mpu_right.testConnection()
+			               ? F("MPU6050 right side connection successful")
+			               : F("MPU6050 right side connection failed"));
+		Serial.println(mpu_left.testConnection()
+			               ? F("MPU6050 left side connection successful")
+			               : F("MPU6050 left side connection failed"));
+
 		// initialize device
 		Serial.print(F("Initializing I2C devices...at "));
 		// Serial.println(mpu_left.getDeviceID());
@@ -652,14 +662,6 @@ void setup()
 		mpu_right.prefix = "R";
 		mpu_right.label = "Right ";
 
-		// verify connection
-		//Serial.println(F("Testing device connections..."));
-		Serial.println(mpu_right.testConnection()
-			               ? F("MPU6050 right side connection successful")
-			               : F("MPU6050 right side connection failed"));
-		Serial.println(mpu_left.testConnection()
-			               ? F("MPU6050 left side connection successful")
-			               : F("MPU6050 left side connection failed"));
 
 		// load and configure the DMP`s
 		Serial.println(F("Initializing right DMP..."));
