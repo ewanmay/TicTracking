@@ -4,15 +4,16 @@
 //
 
 
-/* ============================================
-I2Cdev device library code is placed under the MIT license
-
-===============================================
-*/
 
 // I2Cdev and MPU6050 must be installed as libraries, or else the .cpp/.h files
 // for both classes must be in the include path of your project
 
+//#include <gfxfont.h>
+#include <Adafruit_SPITFT_Macros.h>
+//#include <Adafruit_SPITFT.h>
+#include <Adafruit_GFX.h>
+#include "alarm.h"
+#include "system_state.h"
 #include "Logging.h"
 #include <I2Cdev.h>
 //#include "MPU6050_6Axis_MotionApps20.h"
@@ -23,6 +24,8 @@ I2Cdev device library code is placed under the MIT license
 #include <Wire.h>
 #include <RTClib.h>
 #include <cmath>
+
+#include "system_parameters.h"
 
 /*****************************************************************************
  *
@@ -47,11 +50,29 @@ unsigned long last_measure_milli = 0; //records when last measurement was logged
 //#define OUTPUT_ALL
 //#define RECORD_ALL // uncomment "RECORD_ALL" if you want to write the actual data straight out of the FIFO
 
-/////////////////////////////////////
-/// Testing
-/////////////////////////////////////
+/*****************************************************************************
+ *
+ * Testing
+ *
+ *****************************************************************************/
 long last_test_milli = 0; // these two parameters allow for periodic testing
 #define TEST_MEASURE_INTERVAL 20*1000 // milliseconds
+
+/*****************************************************************************
+ *
+ * System state
+ *
+ *****************************************************************************/
+system_state system_State = { none, none, startup }; // start with initialization (from off we go to begin, however)
+
+/*****************************************************************************
+ *
+ * System status_area, alarms and displays
+ *
+ *****************************************************************************/
+//enum area  { unknown_area, overall, clock, sd_card, r_accelerometer, l_accelerometer, battery};  // all the areas where the system can have alarms and problems
+
+
 
 
 /*****************************************************************************
@@ -192,10 +213,7 @@ int line_count = 0; // counts lines prior to flushing
 // AD0 high = 0x69
 // MPU6050 mpu();
 
-#define INTERRUPT_PIN_LEFT 34
-#define AD0_PIN_LEFT 32
-#define INTERRUPT_PIN_RIGHT 36
-#define AD0_PIN_RIGHT 12
+
 
 Multi_MPU mpu_left(AD0_PIN_LEFT, 0x69); // <-- use for AD0 
 Multi_MPU mpu_right(AD0_PIN_RIGHT, 0x69); // <-- use for AD0 high
