@@ -185,7 +185,7 @@ void display_and_blank(char* title, system_status status, char* message)
 	// now go to sleep. return either a valid button press or timeout
 	/* Wake up in 2 seconds, or when button is pressed */
 
-	logger_debug(__LINE__, dump_io_pins());
+	//logger_debug(__LINE__, dump_io_pins());
 
 	esp_sleep_enable_timer_wakeup((uint64_t)DISPLAY_BLANK_INTERVAL);
 	esp_sleep_enable_gpio_wakeup();
@@ -504,6 +504,17 @@ String dump_io_pins()
 	for (auto i = 0; i < sizeof(all_buttons) / sizeof(all_buttons[0]); i++)
 	{
 		msg.concat(sardprintf("P:%d-%d ", all_buttons[i], digitalRead(all_buttons[i])));
+	}
+	return msg;
+}
+String dump_io_pins(int pins[], int num_pins)
+{
+	//const int all_buttons[] = { 0, 1, 2, 3, 4, 5, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 32, 33, 34, 35, 36, 39}
+	//const int all_buttons[] = { 4, 15, 27, 34, 36 };
+	String msg = "Pins ";
+	for (auto i = 0; i < num_pins; i++)
+	{
+		msg.concat(sardprintf("P:%d-%d ", pins[i], digitalRead(pins[i])));
 	}
 	return msg;
 }

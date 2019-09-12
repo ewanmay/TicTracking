@@ -31,12 +31,24 @@
     <ClInclude Include="..\..\..\..\Documents\Arduino\libraries\RTClib\RTClib.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="alarm.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="system_state.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Multi_I2C.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Logging.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="alarm.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="system_state.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

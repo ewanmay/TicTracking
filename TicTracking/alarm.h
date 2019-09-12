@@ -89,6 +89,7 @@ const button null_button = { .pin = (gpio_num_t) -1 ,.function = not_a_button,.p
 void init_UI();
 void init_buttons(const gpio_num_t pins[], const button_function function[], const int button_count);
 bool read_button_pressed(int pin);
+String dump_io_pins(int pins[], int num_pins);
 void blank_display();
 void bit_display(byte* image);
 void display_and_hold(String title, char* heading, char* message, int timeout);
