@@ -137,6 +137,7 @@ bool write_record(String log_record, Log_Level log_lvl)
 		{
 			//Serial.printf("Exclusion ends"); 
 			Serial.println();
+			
 			exclusion_on = false;
 		}
 		// print an asterisk if we can detect a write problem
@@ -144,6 +145,7 @@ bool write_record(String log_record, Log_Level log_lvl)
 		//TODO figure out why these two numbers do not equate
 		//Serial.println(log_record.length());
 		Serial.println(log_record);
+		Serial.flush();
 	}
 	return (good_write > log_record.length());
 }

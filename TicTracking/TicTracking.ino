@@ -1,12 +1,9 @@
-// I2C device class (I2Cdev) demonstration Arduino sketch for MPU6050 class using DMP (MotionApps v2.0)
-// 6/21/2012 by Jeff Rowberg <jeff@rowberg.net>
-// Updates should (hopefully) always be available at https://github.com/jrowberg/i2cdevlib
-//
+/* TicTracking program
+ * 
+ * by Ewan May and Richard May
+ * 
+ * */
 
-
-
-// I2Cdev and MPU6050 must be installed as libraries, or else the .cpp/.h files
-// for both classes must be in the include path of your project
 
 //#include <gfxfont.h>
 #include <Adafruit_SPITFT_Macros.h>
@@ -26,13 +23,21 @@
 #include <cmath>
 
 #include "system_parameters.h"
+#include <driver/rtc_io.h>
+
+/*****************************************************************************
+ *
+ * declarations
+ *
+ *****************************************************************************/
+void setup1();
 
 /*****************************************************************************
  *
  * option switches
  *
  *****************************************************************************/
-//#define TIMING
+#define TIMING
 #define LOGGING
 #define LOGFILE "/Logs/Log xxxx - yyyy.txt"  //where xxxx = date and yyyy = daily sequence
 
@@ -55,7 +60,6 @@ unsigned long last_measure_milli = 0; //records when last measurement was logged
  * Testing
  *
  *****************************************************************************/
-long last_test_milli = 0; // these two parameters allow for periodic testing
 #define TEST_MEASURE_INTERVAL 20*1000 // milliseconds
 
 /*****************************************************************************
@@ -63,7 +67,7 @@ long last_test_milli = 0; // these two parameters allow for periodic testing
  * System state
  *
  *****************************************************************************/
-system_state system_State = { none, none, startup }; // start with initialization (from off we go to begin, however)
+system_state system_State = {none, none, startup}; // start with initialization (from off we go to begin, however)
 
 /*****************************************************************************
  *
@@ -71,9 +75,8 @@ system_state system_State = { none, none, startup }; // start with initializatio
  *
  *****************************************************************************/
 //enum area  { unknown_area, overall, clock, sd_card, r_accelerometer, l_accelerometer, battery};  // all the areas where the system can have alarms and problems
-
-
-
+// time to delay shutdown for user cancel (in seconds)
+#define SYSTEM_OFF_DELAY 10
 
 /*****************************************************************************
  *
@@ -83,9 +86,9 @@ system_state system_State = { none, none, startup }; // start with initializatio
 
 long start = 0; // defines top of loop
 #ifdef TIMING
-#define TIME_START start=millis();
-#define TIME_EVENT(msg) record_time(#msg,millis(), __LINE__, start);
-	
+#define TIME_START loop_start_micro=micros();
+#define TIME_EVENT(msg) record_time(#msg, micros(), __LINE__, loop_start_micro);
+// record_time("exit left sleep", micros(), __LINE__, loop_start_micro);	
 
 #else
 #define TIME_START
@@ -103,6 +106,7 @@ void record_time(String msg, long time, int line_no, long start)
 	record.concat(msg);
 #ifdef TIMING
 	Serial.println(record);
+	Serial.flush();
 #endif
 }
 
@@ -113,7 +117,7 @@ void record_time(String msg, long time, int line_no, long start)
  *****************************************************************************/
 RTC_PCF8523 rtc;
 File logfile; // for storing all log information
-String filepath;
+String log_filepath;
 
 #ifdef LOGGING
 //#include "Logging.h"
@@ -213,8 +217,6 @@ int line_count = 0; // counts lines prior to flushing
 // AD0 high = 0x69
 // MPU6050 mpu();
 
-
-
 Multi_MPU mpu_left(AD0_PIN_LEFT, 0x69); // <-- use for AD0 
 Multi_MPU mpu_right(AD0_PIN_RIGHT, 0x69); // <-- use for AD0 high
 Multi_MPU* mpu;
@@ -250,29 +252,23 @@ long old_millis = 0; //for calculating dump intervals
 
 
 // ================================================================
-// ===               INTERRUPT SERVICE ROUTINE                ===
+// ===               INTERRUPT SERVICE ROUTINES                ===
 // ================================================================
 
+volatile bool on_off_pushed = false; // indicates whether on/off switch has been pushed
+void IRAM_ATTR on_off_switch_set()
+{
+	on_off_pushed = true;
+}
+
+void on_off_switch_reset()
+{
+	on_off_pushed = false;
+}
+
 volatile bool mpuInterruptRight = false; // indicates whether MPU interrupt pin has gone high
-void dmpDataReadyRight()
-{
-	mpuInterruptRight = true;
-#ifdef OUTPUT_INTERRUPT
-	Serial.print("ri-");
-	Serial.println(millis());
-#endif
-}
-
-
 volatile bool mpuInterruptLeft = false; // indicates whether MPU interrupt pin has gone high
-void dmpDataReadyLeft()
-{
-	mpuInterruptLeft = true;
-#ifdef OUTPUT_INTERRUPT
-	Serial.print("li-");
-	Serial.println(millis());
-#endif
-}
+
 
 // ================================================================
 // ===               GET BATTERY LEVEL                          ===
@@ -429,7 +425,7 @@ void initializeDmp(int devStatus, int interruptPin, Multi_MPU& mpu)
 		mpu.readMemoryBlock(dmpUpdate, 0x02, 0x02, 0x16);
 		// Lets read the dmpUpdate data from the Firmware image, we have 2 bytes to write in bank 0x02 with the Offset 0x16
 		Serial.printf("DMP sample divisor dump.  Should be 0x0, 0x0: ");
-		for (int i = 0; i < (sizeof(dmpUpdate) / sizeof(dmpUpdate[0])); i++)
+		for (auto i = 0; i < (sizeof(dmpUpdate) / sizeof(dmpUpdate[0])); i++)
 		{
 			Serial.printf("%d \t", dmpUpdate[i]);
 		}
@@ -523,30 +519,6 @@ bool recover_MPU(Multi_MPU& mpu)
 	return devStatus;
 }
 
-// ================================================================
-// ===                      WRITE FILES                         ===
-// ================================================================
-
-void writeFile(fs::FS& fs, const char* path, const char* message)
-{
-	Serial.printf("Writing file: %s\n", path);
-
-	File file = fs.open(path, FILE_WRITE);
-	if (!file)
-	{
-		Serial.println("Failed to open file for writing");
-		return;
-	}
-	if (file.print(message))
-	{
-		Serial.println("File written");
-	}
-	else
-	{
-		Serial.println("Write failed");
-	}
-	file.close();
-}
 
 // ================================================================
 // ===                      INITIAL SETUP                       ===
@@ -554,11 +526,36 @@ void writeFile(fs::FS& fs, const char* path, const char* message)
 
 void setup()
 {
-	Serial.begin(230400);
+	setup1();
+} // end setup()
 
-	delay(5000); // TODO remove this one once you figure out how to slow things down
+/**
+ * \brief setup1
+ * This function is essentially setup() but in a separate function so I can call it whenever I need it
+ */
+void setup1()
+{
+	system_State.current = startup;
+	logger_debug(__LINE__, "Starting startup state");
+	if (!Serial)
+	{
+		Serial.begin(230400);
+		delay(5000); // TODO remove this one once you figure out how to slow things down
+	}
 	while (!Serial); // wait for Leonardo enumeration, others continue immediately
 	//Serial.println("Hello");
+
+
+	// 
+	// set up UI
+	//
+	init_UI();
+	display_and_blank("Starting up", system_Status, "Please stand by");
+
+	//
+	// Set up on/off button interrupt
+	//
+	attachInterrupt(digitalPinToInterrupt(SW3), on_off_switch_set, HIGH);
 
 	// join I2C bus (I2Cdev library doesn't do this automatically)
 #if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
@@ -592,12 +589,18 @@ void setup()
 	digitalWrite(AD0_PIN_RIGHT, HIGH);
 	if (!rtc.begin())
 	{
-		Serial.println("Couldn't find RTC... stopping");
-		while (1);
+		//Serial.println("Couldn't find RTC... pausing and restarting");
+		logger_error(__LINE__, "Couldn't find RTC... pausing and restarting");
+		delay(1000);
+		system_State.previous = startup;
+		system_State.next = begin;
+		return;
 	}
 	else
 	{
-		Serial.println("RTC initialization success");
+		logger_debug(__LINE__, "RTC initialization ok");
+		display_and_blank("RTC ok", system_Status, "Please stand by!");
+		//Serial.println("RTC initialization success");
 	}
 	// now get the time and prepare a log file.  
 	DateTime now = rtc.now();
@@ -610,30 +613,31 @@ void setup()
 	{
 		char seq[4];
 		sprintf(seq, "%04d", i);
-		filepath = file_path_yyyy;
-		filepath.replace("yyyy", seq);
-		//Serial.println(filepath);
-		if (SD.exists(filepath))
+		log_filepath = file_path_yyyy;
+		log_filepath.replace("yyyy", seq);
+		//Serial.println(log_filepath);
+		if (SD.exists(log_filepath))
 		{
-			//Serial.printf("Log file: %s exists. Will try another...\n\r", filepath.c_str());
+			//Serial.printf("Log file: %s exists. Will try another...\n\r", log_filepath.c_str());
 		}
 		else
 		{
-			Serial.printf("Log file: %s is available\n\r", filepath.c_str());
-			logfile = logger_setup(filepath);
+			//Serial.printf("Log file: %s is available\n\r", log_filepath.c_str());
+			logfile = logger_setup(log_filepath);
 			break;
 		}
 	}
 	// put some initial entries into the file
-	//Serial.printf("Log file: %s is available\n\r", filepath.c_str());
+	//Serial.printf("Log file: %s is available\n\r", log_filepath.c_str());
 
 	//Serial.println(msg);
 	//Serial.println(sardprintf("Battery voltage: %f Capacity: %d/100", get_battery_voltage(),
 	//	get_battery_capacity()));
-	msg = "Opening " + filepath + " at " + now.timestamp();
+	msg = "Opening " + log_filepath + " at " + now.timestamp();
 	logger_info(__LINE__, msg);
 	logger_info(__LINE__, sardprintf("Battery voltage: %f Capacity: %d/100", get_battery_voltage(),
 	                                 get_battery_capacity()));
+	display_and_blank( sardprintf("Battery: %fV", get_battery_voltage()),	sardprintf("Capacity: %d/100", get_battery_capacity()),String(" Ready to go!"));
 
 
 #if 0 //TODO get this to work
@@ -715,111 +719,137 @@ void setup()
 	logger_info(__LINE__, mpu_right.init_status_string);
 	Serial.flush();
 
-	// pinMode(LED_PIN, OUTPUT);
-} // end setup()
-
+	// now get ready for next state
+	system_State.previous = startup;
+	system_State.next = waiting;
+	logger_debug(__LINE__, "Setup complete");
+} // end setup1()
 
 // ================================================================
-// ===                    MAIN PROGRAM LOOP                     ===
+// ===                      STATES                              ===
 // ================================================================
 
-void loop()
+void recording_state()
 {
+	system_State.current = recording;
+	logger_debug(__LINE__, "Starting recording");
+
+	// display a splash display
+	int button_pins[] = {SW1, SW2}; // these are the buttons we'll look for input from
+	int num_pins = sizeof(button_pins) / sizeof(button_pins[0]);
+	//display_and_blank("Starting to record", "", "Please carry on!", button_pins, num_pins, DISPLAY_BLANK_INTERVAL);
+	display_and_blank("Starting to record", system_Status,"Please carry on!");
+	
+	
 	// Serial.println("Starting loop");
-	if (!dmpReady)
+	if (!dmpReady) //TODO this should go to recording_stopped
 	{
 		Serial.println("Something dun fucked up");
 		return;
 	}
 
-	// wait for MPU interrupt or extra packet(s) available
-	TIME_START
+	auto tabs = "R\t\t\t\t\t";
 
-	//TIME_EVENT"loop start"
-
-	char* tabs = "R\t\t\t\t\t";
-	long loop_start = millis(); // for calculating wait timeout
-	long loop_start_micro = micros(); // for calculating wait timeout
-
-	record_time("loop start", micros(), __LINE__, loop_start_micro);
+	record_time("entering loop", micros(), __LINE__, 0L);
 
 	//readLeft = false; //TODO for testing only.  It forces system to read only one accelerometer
+
+	// gather and record loop
 	while (true)
 	{
-		fifoCount_left = mpu_left.getFIFOCount();
-		fifoCount_right = mpu_right.getFIFOCount();
-		record_time("got FIFO's", micros(), __LINE__, loop_start_micro);
-		// Serial.println(readLeft);
-		if (fifoCount_right >= 42 && mpuInterruptRight && !readLeft)
+		long loop_start = millis(); // for calculating wait timeout
+		long loop_start_micro = micros(); // for calculating ms timing
+		//record_time("top of loop", micros(), __LINE__, loop_start_micro);
+		TIME_EVENT(top of loop)
+
+		// wait for data from an accelerometer
+		while (true)
 		{
-			// Data ready on the right
-			mpuInterruptRight = false;
-			mpu = &mpu_right;
-			readLeft = true;
-			record_time("breaking", micros(), __LINE__, loop_start_micro);
-			break;
-		}
+			// always look for ON/OFF button push
+			if (on_off_pushed)
+			{
+				system_State.previous = recording;
+				system_State.next = going_off;
+				//  TODO insert any required cleanup code here
+				logger_info(__LINE__, "On_off switch push detected,  Going to going_off");
+				return;
+			}
+			fifoCount_left = mpu_left.getFIFOCount();
+			fifoCount_right = mpu_right.getFIFOCount();
+			//record_time("got FIFO's", micros(), __LINE__, loop_start_micro);
+			TIME_EVENT(got FIFOs)
+			// Serial.println(readLeft);
+			if (fifoCount_right >= 42 && mpuInterruptRight && !readLeft)
+			{
+				// Data ready on the right
+				mpuInterruptRight = false;
+				mpu = &mpu_right;
+				readLeft = true;
+				//record_time("breaking", micros(), __LINE__, loop_start_micro);
+				TIME_EVENT(breaking)
+				break;
+			}
 
-		if (fifoCount_left >= 42 && mpuInterruptLeft && readLeft)
-		{
-			// Data ready on the left
-			mpuInterruptLeft = false;
-			mpu = &mpu_left;
-			tabs = "L ";
-			readLeft = false;
-			record_time("breaking", micros(), __LINE__, loop_start_micro);
-			break;
-		}
+			if (fifoCount_left >= 42 && mpuInterruptLeft && readLeft)
+			{
+				// Data ready on the left
+				mpuInterruptLeft = false;
+				mpu = &mpu_left;
+				tabs = "L ";
+				readLeft = false;
+				//record_time("breaking", micros(), __LINE__, loop_start_micro);
+				TIME_EVENT(breaking)
+				break;
+			}
 
-		//
-		// we are now waiting until there is data
-		//
-
-		// first log battery voltage if we should
-		if (millis() > last_measure_milli + BATTERY_MEASURE_INTERVAL)
-		{
-			logger_info(__LINE__, sardprintf("Battery voltage: %f Capacity: %d/100", get_battery_voltage(),
-			                                 get_battery_capacity()));
-			last_measure_milli = millis();
-			logger_info(__LINE__, sardprintf("Logfile size: %d", logfile.size()));
-			last_measure_milli = millis();
-		}
+			// log battery voltage if we should
+			if (millis() > last_measure_milli + BATTERY_MEASURE_INTERVAL)
+			{
+				logger_info(__LINE__, sardprintf("Battery voltage: %f Capacity: %d/100", get_battery_voltage(),
+				                                 get_battery_capacity()));
+				logger_info(__LINE__, sardprintf("Logfile size: %d", logfile.size()));
+				last_measure_milli = millis();
+			}
 
 
-		// now set an interrupt driven sleep depending on readLeft
+			// now set an interrupt driven sleep depending on readLeft
 #if 1
-		long start = micros(); //start of sleep
-		esp_sleep_enable_gpio_wakeup();
-		if (readLeft)
-		{
-			gpio_wakeup_enable((gpio_num_t)INTERRUPT_PIN_LEFT, GPIO_INTR_HIGH_LEVEL);
-			//logger_debug(__LINE__, sardprintf("Going 2 sleep on L intpt elapsed: %d us", micros() - loop_start_micro));
-			esp_light_sleep_start();
+			long start = micros(); //start of sleep
+			esp_sleep_enable_gpio_wakeup();
+			if (readLeft)
+			{
+				gpio_wakeup_enable((gpio_num_t)INTERRUPT_PIN_LEFT, GPIO_INTR_HIGH_LEVEL);
+				logger_debug(__LINE__, sardprintf("Going 2 sleep on L intpt elapsed: %d us", micros() - loop_start_micro));
+				esp_light_sleep_start();
 
-			//logger_debug(__LINE__, sardprintf("Awaking fr L intpt after %d us (%d)", micros() - loop_start_micro, mpu_left.getFIFOCount()));
-			// clear interrupt
-			// mpu_left.getIntStatus();
-			gpio_wakeup_disable((gpio_num_t)INTERRUPT_PIN_LEFT);
-			mpuInterruptLeft = true;
-			record_time("exit left sleep", micros(), __LINE__, loop_start_micro);
-		}
+				//logger_debug(__LINE__, sardprintf("Awaking fr L intpt after %d us (%d)", micros() - loop_start_micro, mpu_left.getFIFOCount()));
+				// clear interrupt
+				// mpu_left.getIntStatus();
+				gpio_wakeup_disable((gpio_num_t)INTERRUPT_PIN_LEFT);
+				mpuInterruptLeft = true;
+				record_time("exit left sleep", micros(), __LINE__, loop_start_micro);
+				if (!button_press_quick_check(SW3)) on_off_pushed = true;
+				// check to see if the ok/off button pushed  TODO find a better way to do this
+			}
 #endif
 #if 1
-		else
-		{
-			gpio_wakeup_enable((gpio_num_t)INTERRUPT_PIN_RIGHT, GPIO_INTR_HIGH_LEVEL);
-			//logger_debug(__LINE__, sardprintf("Going 2 sleep on R intpt elapsed: %d us", micros() - loop_start_micro));
+			else
+			{
+				gpio_wakeup_enable((gpio_num_t)INTERRUPT_PIN_RIGHT, GPIO_INTR_HIGH_LEVEL);
+				logger_debug(__LINE__, sardprintf("Going 2 sleep on R intpt elapsed: %d us", micros() - loop_start_micro));
 
-			esp_light_sleep_start();
+				esp_light_sleep_start();
 
-			//logger_debug(__LINE__, sardprintf("Awaking from right interrupt after %d us (%d) ", micros() - loop_start_micro, mpu_right.getFIFOCount()));
-			// clear interrupt
-			// mpu_right.getIntStatus();
-			gpio_wakeup_disable((gpio_num_t)INTERRUPT_PIN_RIGHT);
-			mpuInterruptRight = true;
-			record_time("exit right sleep", micros(), __LINE__, loop_start_micro);
-		}
-
+				//logger_debug(__LINE__, sardprintf("Awaking from right interrupt after %d us (%d) ", micros() - loop_start_micro, mpu_right.getFIFOCount()));
+				// clear interrupt
+				// mpu_right.getIntStatus();
+				gpio_wakeup_disable((gpio_num_t)INTERRUPT_PIN_RIGHT);
+				mpuInterruptRight = true;
+				record_time("exit right sleep", micros(), __LINE__, loop_start_micro);
+				if (!button_press_quick_check(SW3)) on_off_pushed = true;
+				// check to see if the ok/off button pushed  TODO find a better way to do this
+			}
+			esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
 #endif
 
 #if 0
@@ -844,33 +874,35 @@ void loop()
 		default: Serial.printf("Wakeup was not caused by deep sleep: %d\n", wakeup_reason); break;
 		}
 #endif
-
-		if (millis() - loop_start > WAIT_TIMEOUT_MS) //WAIT_TIMEOUT_MS
-		{
-			logger_error(__LINE__, "Too long in interrupt wait loop.  Checking MPU *********");
-			// TODO fix this problem - the following codes is a KLUGE
-			String status_now = mpu->getStatusString();
-			if (mpu->init_status_string.equals(status_now))
+			if ((millis() - loop_start) > WAIT_TIMEOUT_MS) //WAIT_TIMEOUT_MS
 			{
-				logger_info(__LINE__, sardprintf("%s MPU status OK", mpu->label));
+				logger_error(__LINE__, sardprintf("Too long in interrupt wait loop (%d|%d|%d).  Checking MPU *********",
+				                                  loop_start, millis() - loop_start, WAIT_TIMEOUT_MS));
+				// TODO fix this problem - the following code is a KLUGE
+				String status_now = mpu->getStatusString();
+				if (mpu->init_status_string.equals(status_now))
+				{
+					logger_info(__LINE__, sardprintf("%s MPU status OK", mpu->label));
+				}
+				else
+				{
+					logger_error(__LINE__, sardprintf("%s MPU status *BAD* dumping config and recovering", mpu->label));
+					logger_error(__LINE__, sardprintf("%s MPU original status: %s", mpu->label,
+					                                  mpu->init_status_string.c_str()));
+					logger_error(__LINE__, sardprintf("%s MPU current status: %s", mpu->label, status_now.c_str()));
+					recover_MPU(*mpu);
+				}
+				loop_start = millis(); //reset loop_start to wait again
 			}
-			else
-			{
-				logger_error(__LINE__, sardprintf("%s MPU status *BAD* dumping config and recovering", mpu->label));
-				logger_error(__LINE__, sardprintf("%s MPU original status: %s", mpu->label,
-				                                  mpu->init_status_string.c_str()));
-				logger_error(__LINE__, sardprintf("%s MPU current status: %s", mpu->label, status_now.c_str()));
-				recover_MPU(*mpu);
-			}
-			loop_start = millis(); //reset loop_start to wait again
-		}
-	} // END While true
+		} // END While waiting for data
 
-	record_time("end true", micros(), __LINE__, loop_start_micro);
-	mpuIntStatus = mpu->getIntStatus();
-
-	//  some testing code to remove later
+		record_time("end data wait", micros(), __LINE__, loop_start_micro);
+		// 
+		// now fetch and process the data
+		//
+		mpuIntStatus = mpu->getIntStatus();
 #if 0
+	//  some testing code to remove later
 	if (millis() > (last_measure_milli + TEST_MEASURE_INTERVAL))
 	{
 		//mpuIntStatus |= _BV(MPU6050_INTERRUPT_FIFO_OFLOW_BIT);
@@ -882,156 +914,137 @@ void loop()
 		Serial.println(mpuIntStatus, BIN);
 	}
 #endif
-
-	// get current FIFO count
-	fifoCount = mpu->getFIFOCount();
-	record_time("process INT", micros(), __LINE__, loop_start_micro);
-	if (fifoCount < packetSize)
-	{
-		logger_error(__LINE__, sardprintf("What? %s fifoCount -%d- is now less than packetSize -%d- ! ..resetting FIFO",
-		                                  mpu->label, fifoCount,
-		                                  packetSize));
-		mpu->resetFIFO();
-		fifoCount = mpu->getFIFOCount(); // will be zero after reset
-		if (fifoCount != 0)
+		// get current FIFO count
+		fifoCount = mpu->getFIFOCount();
+		record_time("process INT", micros(), __LINE__, loop_start_micro);
+		if (fifoCount < packetSize)
 		{
-			logger_error(__LINE__, sardprintf("%s FIFO *BAD* reset. Checking MPU status", mpu->label));
-			// check status
-			String status_now = mpu->getStatusString();
-			if (mpu->init_status_string.equals(status_now))
-				logger_info(__LINE__, sardprintf("%s MPU status OK", mpu->label));
+			logger_error(__LINE__, sardprintf(
+				             "What? %s fifoCount -%d- is now less than packetSize -%d- ! ..resetting FIFO",
+				             mpu->label, fifoCount,
+				             packetSize));
+			mpu->resetFIFO();
+			fifoCount = mpu->getFIFOCount(); // will be zero after reset
+			if (fifoCount != 0)
+			{
+				logger_error(__LINE__, sardprintf("%s FIFO *BAD* reset. Checking MPU status", mpu->label));
+				// check status
+				String status_now = mpu->getStatusString();
+				if (mpu->init_status_string.equals(status_now))
+					logger_info(__LINE__, sardprintf("%s MPU status OK", mpu->label));
+				else
+				{
+					logger_error(__LINE__, sardprintf("%s MPU status *BAD* dumping config and recovering", mpu->label));
+					logger_error(__LINE__, sardprintf("%s MPU original status: %s", mpu->label,
+					                                  mpu->init_status_string.c_str()));
+					logger_error(__LINE__, sardprintf("%s MPU current status: %s", mpu->label, status_now.c_str()));
+					recover_MPU(*mpu);
+				}
+			}
 			else
 			{
-				logger_error(__LINE__, sardprintf("%s MPU status *BAD* dumping config and recovering", mpu->label));
-				logger_error(__LINE__, sardprintf("%s MPU original status: %s", mpu->label,
-				                                  mpu->init_status_string.c_str()));
-				logger_error(__LINE__, sardprintf("%s MPU current status: %s", mpu->label, status_now.c_str()));
-				recover_MPU(*mpu);
+				logger_info(__LINE__, sardprintf("%s FIFO reset OK", mpu->label));
 			}
+			//Lets go back and wait for another interrupt. We shouldn't be here, we got an interrupt from another event
+			// This is blocking so don't do it   while (fifoCount < packetSize) fifoCount = mpu.getFIFOCount();
 		}
-		else
-		{
-			logger_info(__LINE__, sardprintf("%s FIFO reset OK", mpu->label));
-		}
-		//Lets go back and wait for another interrupt. We shouldn't be here, we got an interrupt from another event
-		// This is blocking so don't do it   while (fifoCount < packetSize) fifoCount = mpu.getFIFOCount();
-	}
-		// check for overflow (this should never happen unless our code is too inefficient)
-	else if ((mpuIntStatus & _BV(MPU6050_INTERRUPT_FIFO_OFLOW_BIT)) || fifoCount >= 1024)
-	{
-		logger_error(__LINE__, sardprintf("%s FIFO overflow.  Status:(%d) Count:(%d)", mpu->prefix, mpuIntStatus,
-		                                  fifoCount));
-		logger_error(__LINE__, sardprintf("resetting %s FIFO", mpu->label));
-		mpu->resetFIFO();
-		fifoCount = mpu->getFIFOCount(); // will be zero after reset no need to ask
-		if (fifoCount != 0)
-		{
-			logger_error(__LINE__, sardprintf("%s FIFO *BAD* reset. Checking MPU status", mpu->label));
-			// check status
-			String status_now = mpu->getStatusString();
-			if (mpu->init_status_string.equals(status_now))
-				logger_info(__LINE__, sardprintf("%s MPU status OK", mpu->label));
-			else
-			{
-				logger_error(__LINE__, sardprintf("%s MPU status *BAD* dumping config and recovering", mpu->label));
-				logger_error(__LINE__, sardprintf("%s MPU original status: %s", mpu->label,
-				                                  mpu->init_status_string.c_str()));
-				logger_error(__LINE__, sardprintf("%s MPU current status: %s", mpu->label, status_now.c_str()));
-				recover_MPU(*mpu);
-			}
-		}
-		else
-		{
-			logger_info(__LINE__, sardprintf("%s FIFO reset OK", mpu->label));
-		}
-	}
-	else if (mpuIntStatus & _BV(MPU6050_INTERRUPT_DMP_INT_BIT))
-	{
-		// read a packet from FIFO
-		String msg = "fetching FIFO: " + String(fifoCount);
-		record_time(msg, micros(), __LINE__, loop_start_micro);
-		while (fifoCount >= packetSize)
-		{
-			// Lets catch up to NOW, someone is using the dreaded delay()!
-			mpu->getFIFOBytes(fifoBuffer, packetSize);
-			// track FIFO count here in case there is > 1 packet available
-			// (this lets us immediately read more without waiting for an interrupt)
-			fifoCount -= packetSize;
-			// Serial.println(F("fifoBuffer loaded"));
-		}
-		record_time("packets fetched", micros(), __LINE__, loop_start_micro);
 
-#ifdef RECORD_READABLE_QUATERNION
-		// write quaternion values in easy matrix form: w x y z
-		mpu->dmpGetQuaternion(&q, fifoBuffer);
-		if ((q.w * q.w + q.y * q.y + q.x * q.x + q.z * q.z) > 1.05)
+			// check for overflow (this should never happen unless our code is too inefficient)
+		else if ((mpuIntStatus & _BV(MPU6050_INTERRUPT_FIFO_OFLOW_BIT)) || fifoCount >= 1024)
 		{
-			logger_error(__LINE__, sardprintf("%s quaternion out of range.  Resetting FIFO", mpu->prefix));
-			logger_error(__LINE__, sardprintf("%s,%f,%f,%f,%f", mpu->prefix, q.w, q.x, q.y, q.z));
+			logger_error(__LINE__, sardprintf("%s FIFO overflow.  Status:(%d) Count:(%d)", mpu->prefix, mpuIntStatus,
+			                                  fifoCount));
+			logger_error(__LINE__, sardprintf("resetting %s FIFO", mpu->label));
 			mpu->resetFIFO();
 			fifoCount = mpu->getFIFOCount(); // will be zero after reset no need to ask
 			if (fifoCount != 0)
 			{
-				logger_error(__LINE__, sardprintf("%s FIFO *BAD* reset", mpu->label));
+				logger_error(__LINE__, sardprintf("%s FIFO *BAD* reset. Checking MPU status", mpu->label));
+				// check status
+				String status_now = mpu->getStatusString();
+				if (mpu->init_status_string.equals(status_now))
+					logger_info(__LINE__, sardprintf("%s MPU status OK", mpu->label));
+				else
+				{
+					logger_error(__LINE__, sardprintf("%s MPU status *BAD* dumping config and recovering", mpu->label));
+					logger_error(__LINE__, sardprintf("%s MPU original status: %s", mpu->label,
+					                                  mpu->init_status_string.c_str()));
+					logger_error(__LINE__, sardprintf("%s MPU current status: %s", mpu->label, status_now.c_str()));
+					recover_MPU(*mpu);
+				}
 			}
 			else
 			{
 				logger_info(__LINE__, sardprintf("%s FIFO reset OK", mpu->label));
 			}
 		}
-		else
+		else if (mpuIntStatus & _BV(MPU6050_INTERRUPT_DMP_INT_BIT))
 		{
-			logger_data(__LINE__, sardprintf("%s,%f,%f,%f,%f", mpu->prefix, q.w, q.x, q.y, q.z));
+			// read a packet from FIFO
+			String msg = "fetching FIFO: " + String(fifoCount);
+			record_time(msg, micros(), __LINE__, loop_start_micro);
+			while (fifoCount >= packetSize)
+			{
+				// Lets catch up to NOW, someone is using the dreaded delay()!
+				mpu->getFIFOBytes(fifoBuffer, packetSize);
+				// track FIFO count here in case there is > 1 packet available
+				// (this lets us immediately read more without waiting for an interrupt)
+				fifoCount -= packetSize;
+				// Serial.println(F("fifoBuffer loaded"));
+			}
+			record_time("packets fetched", micros(), __LINE__, loop_start_micro);
 
-			//myFile.print(",");
-			//myFile.print(millis());
-			//myFile.print(",");
-			//myFile.print(String(tabs[0])[0]);
-			//myFile.print(",");
-			//myFile.print(q.w);
-			//myFile.print(",");
-			//myFile.print(q.x);
-			//myFile.print(",");
-			//myFile.print(q.y);
-			//myFile.print(",");
-			//myFile.println(q.z);
-			//line_count++;
-
-			//if (line_count >= FLUSH_LIMIT) {
-			//	// write the lines into the SD card if at FLUSH_LIMIT
-			//	myFile.flush();
-			//	line_count = 0;
-			//}
-		}
+#ifdef RECORD_READABLE_QUATERNION
+			// write quaternion values in easy matrix form: w x y z
+			mpu->dmpGetQuaternion(&q, fifoBuffer);
+			if ((q.w * q.w + q.y * q.y + q.x * q.x + q.z * q.z) > 1.05)
+			{
+				logger_error(__LINE__, sardprintf("%s quaternion out of range.  Resetting FIFO", mpu->prefix));
+				logger_error(__LINE__, sardprintf("%s,%f,%f,%f,%f", mpu->prefix, q.w, q.x, q.y, q.z));
+				mpu->resetFIFO();
+				fifoCount = mpu->getFIFOCount(); // will be zero after reset no need to ask
+				if (fifoCount != 0)
+				{
+					logger_error(__LINE__, sardprintf("%s FIFO *BAD* reset", mpu->label));
+				}
+				else
+				{
+					logger_info(__LINE__, sardprintf("%s FIFO reset OK", mpu->label));
+				}
+			}
+			else
+			{
+				logger_data(__LINE__, sardprintf("%s,%f,%f,%f,%f", mpu->prefix, q.w, q.x, q.y, q.z));
+			}
 #endif
 
 #ifdef RECORD_ALL
 		// write the entire FIFO
-	{
-		mpu->dmpGetAccel(&aa, fifoBuffer);
-		// mpu->dmpGetGyro(&gg, fifoBuffer);
-		mpu->dmpGetQuaternion(&q, fifoBuffer);
-		if (std::sqrt(q.w * q.w + q.y * q.y + q.x * q.x + q.z * q.z) > 1.05)
 		{
-			logger_error(__LINE__, sardprintf("%s quaternion out of range.  Resetting FIFO", mpu->prefix));
-			logger_error(__LINE__, sardprintf("%s,%f,%f,%f,%f", mpu->prefix, q.w, q.x, q.y, q.z));
-
-			mpu->resetFIFO();
-			fifoCount = mpu->getFIFOCount(); // will be zero after reset no need to ask
-			if (fifoCount != 0)
+			mpu->dmpGetAccel(&aa, fifoBuffer);
+			// mpu->dmpGetGyro(&gg, fifoBuffer);
+			mpu->dmpGetQuaternion(&q, fifoBuffer);
+			if (std::sqrt(q.w * q.w + q.y * q.y + q.x * q.x + q.z * q.z) > 1.05)
 			{
-				logger_error(__LINE__, sardprintf("%s FIFO *BAD* reset", mpu->label));
+				logger_error(__LINE__, sardprintf("%s quaternion out of range.  Resetting FIFO", mpu->prefix));
+				logger_error(__LINE__, sardprintf("%s,%f,%f,%f,%f", mpu->prefix, q.w, q.x, q.y, q.z));
+
+				mpu->resetFIFO();
+				fifoCount = mpu->getFIFOCount(); // will be zero after reset no need to ask
+				if (fifoCount != 0)
+				{
+					logger_error(__LINE__, sardprintf("%s FIFO *BAD* reset", mpu->label));
+				}
+				else
+				{
+					logger_info(__LINE__, sardprintf("%s FIFO reset OK", mpu->label));
+				}
 			}
 			else
 			{
-				logger_info(__LINE__, sardprintf("%s FIFO reset OK", mpu->label));
+				logger_data(__LINE__, sardprintf("%s,%f,%f,%f,%f,%f,%f,%f,%f", mpu->prefix, q.w, q.x, q.y, q.z, aa.x, aa.y, aa.z));
 			}
 		}
-		else
-		{
-			logger_data(__LINE__, sardprintf("%s,%f,%f,%f,%f,%f,%f,%f,%f", mpu->prefix, q.w, q.x, q.y, q.z, aa.x, aa.y, aa.z));
-		}
-	}
 #endif
 
 #ifdef OUTPUT_READABLE_QUATERNION
@@ -1042,7 +1055,7 @@ void loop()
 		long j = millis();
 		Serial.print(j);
 		Serial.print(" (");
-		Serial.print(j-old_millis);
+		Serial.print(j - old_millis);
 		old_millis = j;
 		Serial.print(")\t");
 		Serial.print(q.w);
@@ -1063,22 +1076,22 @@ void loop()
 
 
 		//Serial.print("!");
-		//Serial.print(tabs);
-		//long now = millis();
-		////Serial.print(k);
-		//msg += (" (");
-		//msg += String(now - old_millis);
-		//old_millis = now;
+			//Serial.print(tabs);
+			//long now = millis();
+			////Serial.print(k);
+			//msg += (" (");
+			//msg += String(now - old_millis);
+			//old_millis = now;
 		//msg+=(")  ");
-		msg = String(*tabs)[0]+ " ";
+		msg = String(*tabs)[0] + " ";
 		msg = String(*tabs);
-		msg+=(q.w);
-		msg+=("\t");
-		msg+=(q.x);
-		msg+=("\t");
-		msg+=(q.y);
-		msg+=("\t");
-		msg+=(q.z);
+		msg += (q.w);
+		msg += ("\t");
+		msg += (q.x);
+		msg += ("\t");
+		msg += (q.y);
+		msg += ("\t");
+		msg += (q.z);
 		//Serial.println(msg);
 		LOG_DATA(msg);
 #endif
@@ -1151,32 +1164,199 @@ void loop()
 		Serial.write(teapotPacket, 14);
 		teapotPacket[11]++; // packetCount, loops at 0xFF on purpose
 #endif
-		//logger_debug(__LINE__, sardprintf("End of accel loop %d us", micros() - loop_start_micro));
-	} // end of recording accelerometer data
-	else
-	{
-		// we have an unrecognized situation
-		logger_error(__LINE__, sardprintf(
-			             "Unrecognized DMP situation on %s side.  Interrupt status: %d  Fifocount: %d",
-			             mpu->label, mpuIntStatus, fifoCount));
-		logger_error(__LINE__, "MPU configs ------------");
-		logger_error(__LINE__, mpu_left.getStatusString());
-		logger_error(__LINE__, mpu_right.getStatusString());
-		//logger_error(__LINE__, sardprintf("Recovering %s MPU and continuing", mpu->label));
-		//recover_MPU(* mpu);
-
-		String status_now = mpu->getStatusString();
-		//		mpu->init_status_string.concat("1"); //TODO remove this it's a test
-		if (mpu->init_status_string.equals(status_now))
-			logger_info(__LINE__, sardprintf("%s MPU status is unchanged, no recovery will be tried", mpu->label));
+		} // end of recording accelerometer data
 		else
 		{
-			logger_error(
-				__LINE__, sardprintf("%s MPU status has *CHANGED*.  Dumping config and recovering", mpu->label));
-			logger_error(
-				__LINE__, sardprintf("%s MPU original status: %s", mpu->label, mpu->init_status_string.c_str()));
-			logger_error(__LINE__, sardprintf("%s MPU current status: %s", mpu->label, status_now.c_str()));
-			recover_MPU(*mpu);
+			// we have an unrecognized situation
+			logger_error(__LINE__, sardprintf(
+				             "Unrecognized DMP situation on %s side.  Interrupt status: %d  Fifocount: %d",
+				             mpu->label, mpuIntStatus, fifoCount));
+			logger_error(__LINE__, "MPU configs ------------");
+			logger_error(__LINE__, mpu_left.getStatusString());
+			logger_error(__LINE__, mpu_right.getStatusString());
+			//logger_error(__LINE__, sardprintf("Recovering %s MPU and continuing", mpu->label));
+			//recover_MPU(* mpu);
+
+			String status_now = mpu->getStatusString();
+			//		mpu->init_status_string.concat("1"); //TODO remove this it's a test
+			if (mpu->init_status_string.equals(status_now))
+				logger_info(__LINE__, sardprintf("%s MPU status is unchanged, no recovery will be tried", mpu->label));
+			else
+			{
+				logger_error(
+					__LINE__, sardprintf("%s MPU status has *CHANGED*.  Dumping config and recovering", mpu->label));
+				logger_error(
+					__LINE__, sardprintf("%s MPU original status: %s", mpu->label, mpu->init_status_string.c_str()));
+				logger_error(__LINE__, sardprintf("%s MPU current status: %s", mpu->label, status_now.c_str()));
+				recover_MPU(*mpu);
+			}
 		}
+	}
+}
+
+/**
+ * \brief Waiting state
+ * This state is waiting on the user to either calibrate or start recording
+ */
+void waiting_state()
+{
+	system_State.current = waiting;
+	logger_debug(__LINE__, "Starting waiting state");
+
+
+	system_State.previous = system_State.current;
+	system_State.next = recording;
+}
+
+/**
+ * \brief Calibration
+ * This state involves having the user indicate when his/her head is level
+ */
+void calibration()
+{
+	system_State.current = calibrate;
+	button temp_button;
+	memcpy(&temp_button, &null_button, sizeof(null_button));
+	while (temp_button.function != not_a_button)
+	{
+		//temp_button = display_and_return_button("Calibration", system_Status, "Please touch SW1 when head is level");
+	}
+	logger_data(__LINE__, "Calibration button pushed");
+	//get_quaternion(mpu, quaternion);
+	//get_quaternion(mpu, quaternion);
+
+	display_and_blank("Thanks!", system_Status, "");
+}
+
+/**
+ * \brief going_off_state
+ * This state involves having the user confirm he/she wants to turn off the system.
+ * Otherwise go back to begin if SW3 is pressed and latched
+ */
+void going_off_state()
+{
+	system_State.current = going_off;
+
+	logger_debug(__LINE__, " Starting going_off state");
+
+	//int button_pins[] = {SW3}; // these are the buttons we'll look for input from
+	//int num_pins = sizeof(button_pins) / sizeof(button_pins[0]);
+
+	const int checks_per_interval = 2;
+
+	// display a countdown while looking for SW3 to be released
+	for (auto i = SYSTEM_OFF_DELAY; i > 0; i--)
+	{
+		logger_debug(__LINE__, sardprintf("going_off cycle %d", i));
+		// show a countdown message
+		//button temp_button = display_and_return_button(sardprintf("Power down in %d secs", i).c_str(), system_Status,
+		//                                               "To cancel release SW3", "", "", button_pins, num_pins,
+		//                                               DISPLAY_BLANK_INTERVAL/3);
+
+		display_and_hold(sardprintf("Power down in %d secs", i), "To cancel re-press SW3", "",
+		                 DISPLAY_BLANK_INTERVAL / checks_per_interval);
+
+		if (read_button_pressed(SW3))
+		{
+			logger_info(__LINE__, "Shutdown cancelled by button push");
+			on_off_switch_reset();
+			system_State.previous = system_State.current;
+			system_State.next = begin;
+			delay(250);
+			display_and_blank("Cancel shutdown", system_Status, "");
+			return;
+		}
+		//for (auto j = 0; j < num_pins; j++)
+		//{
+		//	if (temp_button.pin == (gpio_num_t)button_pins[j])
+		//	{
+		//		// we have a valid cancel button press.  Cancel and restart
+
+		//	}
+		//}
+		////logger_debug(__LINE__, "No cancel button press detected");
+	}
+	logger_info(__LINE__, "Timeout reached.  Shutdown starts");
+	system_State.previous = system_State.current;
+	system_State.next = off;
+}
+
+/**
+ * \brief off_state
+ * This state involves going into low power mode, waiting for SW3 to wake up
+ */
+void off_state()
+{
+	logger_debug(__LINE__, " Starting off state");
+
+	// shut down peripherals
+	blank_display();
+	mpu_left.setSleepEnabled(true);
+	mpu_right.setSleepEnabled(true);
+
+	// system comes out of sleep when SW3 is off and pullups take input to HIGH
+#define LOGIC_LEVEL 0
+	esp_sleep_enable_ext0_wakeup((gpio_num_t)SW3, LOGIC_LEVEL);
+
+	// "Configured all RTC Peripherals to be powered down in sleep
+	//esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_OFF);
+
+	rtc_gpio_pullup_en((gpio_num_t)SW3);
+	esp_deep_sleep_start();
+}
+
+/**
+ * \brief begin state
+ * This state involves initializing things before taking on startup
+ */
+void begin_state()
+{
+	system_State.current = going_off;
+	logger_debug(__LINE__, "Starting begin state");
+	// TODO actually write this
+
+	system_State.previous = system_State.current;
+	system_State.next = startup; //TODO set this to startup and get it working!
+}
+
+// ================================================================
+// ===                    MAIN PROGRAM LOOP                     ===
+// ================================================================
+
+void loop()
+{
+	// This is a state machine implementation
+	logger_debug(__LINE__, "Starting state loop");
+
+	switch (system_State.next)
+	{
+	case going_off:
+		going_off_state();
+		break;
+	case off:
+		off_state();
+		break;
+	case begin:
+		begin_state();
+		break;
+	case startup:
+		setup1();
+		break;
+	case waiting:
+		waiting_state();
+		break;
+	case calibrate:
+		calibration();
+		break;
+	case recording:
+		recording_state();
+		break;
+
+	case none:
+	default:
+		logger_error(__LINE__, "Unexpected none state.  Restarting");
+		system_State.previous = none;
+		system_State.next = begin;
+		break;
 	}
 }

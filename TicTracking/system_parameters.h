@@ -16,8 +16,8 @@
 
 //Switch IO Pins
 
-#define SW1 15
-#define SW2 4
-#define SW3 27
+#define SW1 GPIO_NUM_15
+#define SW2 GPIO_NUM_4
+#define SW3 GPIO_NUM_27
 
 #endif
