@@ -469,16 +469,14 @@ void enable_wakeup_pin(const int pins[], const int no_pins, const gpio_int_type_
 	//{
 	//	if (GPIO_IS_VALID_GPIO(all_buttons[i]))
 	//	{
-	//		//gpio_wakeup_disable((gpio_num_t)all_buttons[i]);
+	//		//gpio_wakeup_ensable((gpio_num_t)all_buttons[i]);
 	//	}
 	//	else
 	//	{
-	//		logger_debug(__LINE__, sardprintf("NOT disabling wakeup on pin%d", all_buttons[i]));
+	//		logger_debug(__LINE__, sardprintf("NOT enabling wakeup on pin%d", all_buttons[i]));
 	//	}
 	//}
-	gpio_reset_pin(GPIO_NUM_34);
-	gpio_reset_pin(GPIO_NUM_36);
-	//logger_debug(__LINE__, "Wakeup disable complete");
+	//logger_debug(__LINE__, "Wakeup enable complete");
 
 
 	for (int i = 0; i < no_pins; i++)

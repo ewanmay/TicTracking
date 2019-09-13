@@ -37,7 +37,7 @@ void setup1();
  * option switches
  *
  *****************************************************************************/
-#define TIMING
+//#define TIMING
 #define LOGGING
 #define LOGFILE "/Logs/Log xxxx - yyyy.txt"  //where xxxx = date and yyyy = daily sequence
 
@@ -572,8 +572,8 @@ void setup1()
 
 #ifdef LOGGING
 	// Set up logging
-	//Log_Level excludes[] = {data}; //exclude printing data logs because so voluminous
-	//set_logger_filter(excludes, sizeof(excludes) / sizeof(excludes[0]), 10);
+	Log_Level excludes[] = {data}; //exclude printing data logs because so voluminous
+	set_logger_filter(excludes, sizeof(excludes) / sizeof(excludes[0]), 10);
 	if (!SD.begin())
 	{
 		Serial.println("SD initialization failed! ... stopping");
@@ -819,11 +819,11 @@ void recording_state()
 			if (readLeft)
 			{
 				gpio_wakeup_enable((gpio_num_t)INTERRUPT_PIN_LEFT, GPIO_INTR_HIGH_LEVEL);
-				logger_debug(__LINE__, sardprintf("Going 2 sleep on L intpt elapsed: %d us", micros() - loop_start_micro));
+				//logger_debug(__LINE__, sardprintf("Going 2 sleep on L intpt elapsed: %d us", micros() - loop_start_micro));
 
-				int pins[] = { INTERRUPT_PIN_LEFT ,INTERRUPT_PIN_RIGHT };
-				int num_pins = sizeof(pins) / sizeof(pins[0]);
-				while (true) logger_debug(__LINE__, dump_io_pins(pins, num_pins)); 
+				//int pins[] = { INTERRUPT_PIN_LEFT ,INTERRUPT_PIN_RIGHT };
+				//int num_pins = sizeof(pins) / sizeof(pins[0]);
+				//while (true) logger_debug(__LINE__, dump_io_pins(pins, num_pins)); 
 				
 				esp_light_sleep_start();
 
@@ -841,11 +841,11 @@ void recording_state()
 			else
 			{
 				gpio_wakeup_enable((gpio_num_t)INTERRUPT_PIN_RIGHT, GPIO_INTR_HIGH_LEVEL);
-				logger_debug(__LINE__, sardprintf("Going 2 sleep on R intpt elapsed: %d us", micros() - loop_start_micro));
+				//logger_debug(__LINE__, sardprintf("Going 2 sleep on R intpt elapsed: %d us", micros() - loop_start_micro));
 
-				int pins[] = { INTERRUPT_PIN_LEFT ,INTERRUPT_PIN_RIGHT };
-				int num_pins = sizeof(pins) / sizeof(pins[0]);
-				while (true) logger_debug(__LINE__, dump_io_pins(pins, num_pins));
+				//int pins[] = { INTERRUPT_PIN_LEFT ,INTERRUPT_PIN_RIGHT };
+				//int num_pins = sizeof(pins) / sizeof(pins[0]);
+				//while (true) logger_debug(__LINE__, dump_io_pins(pins, num_pins));
 
 				esp_light_sleep_start();
 
