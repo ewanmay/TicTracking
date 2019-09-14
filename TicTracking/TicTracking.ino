@@ -581,7 +581,9 @@ void setup1()
 	}
 	else
 	{
-		Serial.println("SD initialization success");
+		//Serial.println("SD initialization success");
+		logger_debug(__LINE__, "SD initialization ok");
+		display_and_blank("SD card ok", system_Status, "Please stand by.");
 	}
 
 	//Next, turn off the MPU6050's by moving their I2C addresses to the higher value AD0
@@ -599,7 +601,7 @@ void setup1()
 	else
 	{
 		logger_debug(__LINE__, "RTC initialization ok");
-		display_and_blank("RTC ok", system_Status, "Please stand by!");
+		display_and_blank("RTC ok", system_Status, "Please stand by..");
 		//Serial.println("RTC initialization success");
 	}
 	// now get the time and prepare a log file.  
@@ -637,7 +639,8 @@ void setup1()
 	logger_info(__LINE__, msg);
 	logger_info(__LINE__, sardprintf("Battery voltage: %f Capacity: %d/100", get_battery_voltage(),
 	                                 get_battery_capacity()));
-	display_and_blank( sardprintf("Battery: %fV", get_battery_voltage()),	sardprintf("Capacity: %d/100", get_battery_capacity()),String(" Ready to go!"));
+	display_and_blank(sardprintf("Battery: %fV", get_battery_voltage()),
+	                  sardprintf("Capacity: %d/100", get_battery_capacity()), String(" Ready to go!"));
 
 
 #if 0 //TODO get this to work
@@ -688,7 +691,9 @@ void setup1()
 		// load and configure the DMP`s
 		Serial.println(F("Initializing right DMP..."));
 		devStatus_right = mpu_right.dmpInitialize();
+		if (!devStatus_right) display_and_blank("Right MPU ok", system_Status, "Please stand by...");
 		Serial.println(F("Initializing left DMP..."));
+		if (!devStatus_left) display_and_blank("Left MPU ok", system_Status, "Please stand by....");
 		devStatus_left = mpu_left.dmpInitialize();
 		// supply your own gyro offsets here, scaled for min sensitivity
 		mpu_left.setXGyroOffset(220);
@@ -723,24 +728,14 @@ void setup1()
 	system_State.previous = startup;
 	system_State.next = waiting;
 	logger_debug(__LINE__, "Setup complete");
+	display_and_blank("All ok", system_Status, "Please stand by....!");
 } // end setup1()
 
 // ================================================================
-// ===                      STATES                              ===
+// ===                      RECORD LOOP                         ===
 // ================================================================
-
-void recording_state()
+void record_loop()
 {
-	system_State.current = recording;
-	logger_debug(__LINE__, "Starting recording");
-
-	// display a splash display
-	int button_pins[] = {SW1, SW2}; // these are the buttons we'll look for input from
-	int num_pins = sizeof(button_pins) / sizeof(button_pins[0]);
-	//display_and_blank("Starting to record", "", "Please carry on!", button_pins, num_pins, DISPLAY_BLANK_INTERVAL);
-	display_and_blank("Starting to record", system_Status,"Please carry on!");
-	
-	
 	// Serial.println("Starting loop");
 	if (!dmpReady) //TODO this should go to recording_stopped
 	{
@@ -753,8 +748,6 @@ void recording_state()
 	record_time("entering loop", micros(), __LINE__, 0L);
 
 	//readLeft = false; //TODO for testing only.  It forces system to read only one accelerometer
-
-	// gather and record loop
 	while (true)
 	{
 		long loop_start = millis(); // for calculating wait timeout
@@ -768,12 +761,16 @@ void recording_state()
 			// always look for ON/OFF button push
 			if (on_off_pushed)
 			{
-				system_State.previous = recording;
+				system_State.previous = system_State.current;
 				system_State.next = going_off;
 				//  TODO insert any required cleanup code here
 				logger_info(__LINE__, "On_off switch push detected,  Going to going_off");
 				return;
 			}
+			// if either SW1 or SW2 is pressed return to calling state
+			if (button_press_quick_check(SW1)|| button_press_quick_check(SW2)) return;
+
+			// now look for accelerometer data
 			fifoCount_left = mpu_left.getFIFOCount();
 			fifoCount_right = mpu_right.getFIFOCount();
 			//record_time("got FIFO's", micros(), __LINE__, loop_start_micro);
@@ -824,7 +821,7 @@ void recording_state()
 				//int pins[] = { INTERRUPT_PIN_LEFT ,INTERRUPT_PIN_RIGHT };
 				//int num_pins = sizeof(pins) / sizeof(pins[0]);
 				//while (true) logger_debug(__LINE__, dump_io_pins(pins, num_pins)); 
-				
+
 				esp_light_sleep_start();
 
 				//logger_debug(__LINE__, sardprintf("Awaking fr L intpt after %d us (%d)", micros() - loop_start_micro, mpu_left.getFIFOCount()));
@@ -861,28 +858,6 @@ void recording_state()
 			esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
 #endif
 
-#if 0
-	// we're going to loop and wait for an interrupt.  Let's try sleeping
-#define uS_TO_mS_FACTOR 1000  /* Conversion factor for micro seconds to milliseconds */
-#define TIME_TO_SLEEP  1 
-		esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_mS_FACTOR);
-		//Serial.println(sardprintf("z-%d",micros()));
-		esp_light_sleep_start();
-
-		esp_sleep_wakeup_cause_t wakeup_reason;
-
-		wakeup_reason = esp_sleep_get_wakeup_cause();
-
-		switch (wakeup_reason)
-		{
-		case ESP_SLEEP_WAKEUP_EXT0: Serial.println("Wakeup caused by external signal using RTC_IO"); break;
-		case ESP_SLEEP_WAKEUP_EXT1: Serial.println("Wakeup caused by external signal using RTC_CNTL"); break;
-		case ESP_SLEEP_WAKEUP_TIMER: Serial.println("Wakeup caused by timer"); break;
-		case ESP_SLEEP_WAKEUP_TOUCHPAD: Serial.println("Wakeup caused by touchpad"); break;
-		case ESP_SLEEP_WAKEUP_ULP: Serial.println("Wakeup caused by ULP program"); break;
-		default: Serial.printf("Wakeup was not caused by deep sleep: %d\n", wakeup_reason); break;
-		}
-#endif
 			if ((millis() - loop_start) > WAIT_TIMEOUT_MS) //WAIT_TIMEOUT_MS
 			{
 				logger_error(__LINE__, sardprintf("Too long in interrupt wait loop (%d|%d|%d).  Checking MPU *********",
@@ -910,19 +885,7 @@ void recording_state()
 		// now fetch and process the data
 		//
 		mpuIntStatus = mpu->getIntStatus();
-#if 0
-	//  some testing code to remove later
-	if (millis() > (last_measure_milli + TEST_MEASURE_INTERVAL))
-	{
-		//mpuIntStatus |= _BV(MPU6050_INTERRUPT_FIFO_OFLOW_BIT);
-		mpuIntStatus |= _BV(MPU6050_INTERRUPT_I2C_MST_INT_BIT);
-		mpuIntStatus &= !(_BV(MPU6050_INTERRUPT_DMP_INT_BIT));
-		char* test_msg = "Changing MPU interrupt init_status_string to MPU6050_INTERRUPT_I2C_MST_INT";
-		logger_info(__LINE__, sardprintf("A test condition injection- %s", test_msg));
-		last_measure_milli = millis();
-		Serial.println(mpuIntStatus, BIN);
-	}
-#endif
+
 		// get current FIFO count
 		fifoCount = mpu->getFIFOCount();
 		record_time("process INT", micros(), __LINE__, loop_start_micro);
@@ -1028,150 +991,150 @@ void recording_state()
 #endif
 
 #ifdef RECORD_ALL
-		// write the entire FIFO
-		{
-			mpu->dmpGetAccel(&aa, fifoBuffer);
-			// mpu->dmpGetGyro(&gg, fifoBuffer);
-			mpu->dmpGetQuaternion(&q, fifoBuffer);
-			if (std::sqrt(q.w * q.w + q.y * q.y + q.x * q.x + q.z * q.z) > 1.05)
+			// write the entire FIFO
 			{
-				logger_error(__LINE__, sardprintf("%s quaternion out of range.  Resetting FIFO", mpu->prefix));
-				logger_error(__LINE__, sardprintf("%s,%f,%f,%f,%f", mpu->prefix, q.w, q.x, q.y, q.z));
-
-				mpu->resetFIFO();
-				fifoCount = mpu->getFIFOCount(); // will be zero after reset no need to ask
-				if (fifoCount != 0)
+				mpu->dmpGetAccel(&aa, fifoBuffer);
+				// mpu->dmpGetGyro(&gg, fifoBuffer);
+				mpu->dmpGetQuaternion(&q, fifoBuffer);
+				if (std::sqrt(q.w * q.w + q.y * q.y + q.x * q.x + q.z * q.z) > 1.05)
 				{
-					logger_error(__LINE__, sardprintf("%s FIFO *BAD* reset", mpu->label));
+					logger_error(__LINE__, sardprintf("%s quaternion out of range.  Resetting FIFO", mpu->prefix));
+					logger_error(__LINE__, sardprintf("%s,%f,%f,%f,%f", mpu->prefix, q.w, q.x, q.y, q.z));
+
+					mpu->resetFIFO();
+					fifoCount = mpu->getFIFOCount(); // will be zero after reset no need to ask
+					if (fifoCount != 0)
+					{
+						logger_error(__LINE__, sardprintf("%s FIFO *BAD* reset", mpu->label));
+					}
+					else
+					{
+						logger_info(__LINE__, sardprintf("%s FIFO reset OK", mpu->label));
+					}
 				}
 				else
 				{
-					logger_info(__LINE__, sardprintf("%s FIFO reset OK", mpu->label));
+					logger_data(__LINE__, sardprintf("%s,%f,%f,%f,%f,%f,%f,%f,%f", mpu->prefix, q.w, q.x, q.y, q.z, aa.x, aa.y, aa.z));
 				}
 			}
-			else
-			{
-				logger_data(__LINE__, sardprintf("%s,%f,%f,%f,%f,%f,%f,%f,%f", mpu->prefix, q.w, q.x, q.y, q.z, aa.x, aa.y, aa.z));
-			}
-		}
 #endif
 
 #ifdef OUTPUT_READABLE_QUATERNION
-		// display quaternion values in easy matrix form: w x y z
-		mpu->dmpGetQuaternion(&q, fifoBuffer);
-		//Serial.print("!");
-		Serial.print(tabs);
-		long j = millis();
-		Serial.print(j);
-		Serial.print(" (");
-		Serial.print(j - old_millis);
-		old_millis = j;
-		Serial.print(")\t");
-		Serial.print(q.w);
-		Serial.print("\t");
-		Serial.print(q.x);
-		Serial.print("\t");
-		Serial.print(q.y);
-		Serial.print("\t");
-		Serial.println(q.z);
+			// display quaternion values in easy matrix form: w x y z
+			mpu->dmpGetQuaternion(&q, fifoBuffer);
+			//Serial.print("!");
+			Serial.print(tabs);
+			long j = millis();
+			Serial.print(j);
+			Serial.print(" (");
+			Serial.print(j - old_millis);
+			old_millis = j;
+			Serial.print(")\t");
+			Serial.print(q.w);
+			Serial.print("\t");
+			Serial.print(q.x);
+			Serial.print("\t");
+			Serial.print(q.y);
+			Serial.print("\t");
+			Serial.println(q.z);
 #endif
 
 
 #ifdef LOG_READABLE_QUATERNION
-		// log quaternion values in easy matrix form: w x y z
-		mpu->dmpGetQuaternion(&q, fifoBuffer);
+			// log quaternion values in easy matrix form: w x y z
+			mpu->dmpGetQuaternion(&q, fifoBuffer);
 
-		String msg = "";
+			String msg = "";
 
 
-		//Serial.print("!");
+			//Serial.print("!");
 			//Serial.print(tabs);
 			//long now = millis();
 			////Serial.print(k);
 			//msg += (" (");
 			//msg += String(now - old_millis);
 			//old_millis = now;
-		//msg+=(")  ");
-		msg = String(*tabs)[0] + " ";
-		msg = String(*tabs);
-		msg += (q.w);
-		msg += ("\t");
-		msg += (q.x);
-		msg += ("\t");
-		msg += (q.y);
-		msg += ("\t");
-		msg += (q.z);
-		//Serial.println(msg);
-		LOG_DATA(msg);
+			//msg+=(")  ");
+			msg = String(*tabs)[0] + " ";
+			msg = String(*tabs);
+			msg += (q.w);
+			msg += ("\t");
+			msg += (q.x);
+			msg += ("\t");
+			msg += (q.y);
+			msg += ("\t");
+			msg += (q.z);
+			//Serial.println(msg);
+			LOG_DATA(msg);
 #endif
 
 #ifdef OUTPUT_READABLE_EULER
-		// display Euler angles in degrees
-		mpu->dmpGetQuaternion(&q, fifoBuffer);
-		mpu->dmpGetEuler(euler, &q);
-		Serial.print("euler\t");
-		Serial.print(euler[0] * 180 / M_PI);
-		Serial.print("\t");
-		Serial.print(euler[1] * 180 / M_PI);
-		Serial.print("\t");
-		Serial.println(euler[2] * 180 / M_PI);
+			// display Euler angles in degrees
+			mpu->dmpGetQuaternion(&q, fifoBuffer);
+			mpu->dmpGetEuler(euler, &q);
+			Serial.print("euler\t");
+			Serial.print(euler[0] * 180 / M_PI);
+			Serial.print("\t");
+			Serial.print(euler[1] * 180 / M_PI);
+			Serial.print("\t");
+			Serial.println(euler[2] * 180 / M_PI);
 #endif
 
 #ifdef OUTPUT_READABLE_YAWPITCHROLL
-		// display Euler angles in degrees
-		mpu->dmpGetQuaternion(&q, fifoBuffer);
-		mpu->dmpGetGravity(&gravity, &q);
-		mpu->dmpGetYawPitchRoll(ypr, &q, &gravity);
-		Serial.print("ypr\t");
-		Serial.print(ypr[0] * 180 / M_PI);
-		Serial.print("\t");
-		Serial.print(ypr[1] * 180 / M_PI);
-		Serial.print("\t");
-		Serial.println(ypr[2] * 180 / M_PI);
+			// display Euler angles in degrees
+			mpu->dmpGetQuaternion(&q, fifoBuffer);
+			mpu->dmpGetGravity(&gravity, &q);
+			mpu->dmpGetYawPitchRoll(ypr, &q, &gravity);
+			Serial.print("ypr\t");
+			Serial.print(ypr[0] * 180 / M_PI);
+			Serial.print("\t");
+			Serial.print(ypr[1] * 180 / M_PI);
+			Serial.print("\t");
+			Serial.println(ypr[2] * 180 / M_PI);
 #endif
 
 #ifdef OUTPUT_READABLE_REALACCEL
-		// display real acceleration, adjusted to remove gravity
-		mpu->dmpGetQuaternion(&q, fifoBuffer);
-		mpu->dmpGetAccel(&aa, fifoBuffer);
-		mpu->dmpGetGravity(&gravity, &q);
-		mpu->dmpGetLinearAccel(&aaReal, &aa, &gravity);
-		Serial.print("areal\t");
-		Serial.print(aaReal.x);
-		Serial.print("\t");
-		Serial.print(aaReal.y);
-		Serial.print("\t");
-		Serial.println(aaReal.z);
+			// display real acceleration, adjusted to remove gravity
+			mpu->dmpGetQuaternion(&q, fifoBuffer);
+			mpu->dmpGetAccel(&aa, fifoBuffer);
+			mpu->dmpGetGravity(&gravity, &q);
+			mpu->dmpGetLinearAccel(&aaReal, &aa, &gravity);
+			Serial.print("areal\t");
+			Serial.print(aaReal.x);
+			Serial.print("\t");
+			Serial.print(aaReal.y);
+			Serial.print("\t");
+			Serial.println(aaReal.z);
 #endif
 
 #ifdef OUTPUT_READABLE_WORLDACCEL
-		// display initial world-frame acceleration, adjusted to remove gravity
-		// and rotated based on known orientation from quaternion
-		mpu->dmpGetQuaternion(&q, fifoBuffer);
-		mpu->dmpGetAccel(&aa, fifoBuffer);
-		mpu->dmpGetGravity(&gravity, &q);
-		mpu->dmpGetLinearAccel(&aaReal, &aa, &gravity);
-		mpu->dmpGetLinearAccelInWorld(&aaWorld, &aaReal, &q);
-		Serial.print("aworld\t");
-		Serial.print(aaWorld.x);
-		Serial.print("\t");
-		Serial.print(aaWorld.y);
-		Serial.print("\t");
-		Serial.println(aaWorld.z);
+			// display initial world-frame acceleration, adjusted to remove gravity
+			// and rotated based on known orientation from quaternion
+			mpu->dmpGetQuaternion(&q, fifoBuffer);
+			mpu->dmpGetAccel(&aa, fifoBuffer);
+			mpu->dmpGetGravity(&gravity, &q);
+			mpu->dmpGetLinearAccel(&aaReal, &aa, &gravity);
+			mpu->dmpGetLinearAccelInWorld(&aaWorld, &aaReal, &q);
+			Serial.print("aworld\t");
+			Serial.print(aaWorld.x);
+			Serial.print("\t");
+			Serial.print(aaWorld.y);
+			Serial.print("\t");
+			Serial.println(aaWorld.z);
 #endif
 
 #ifdef OUTPUT_TEAPOT
-		// display quaternion values in InvenSense Teapot demo format:
-		teapotPacket[2] = fifoBuffer[0];
-		teapotPacket[3] = fifoBuffer[1];
-		teapotPacket[4] = fifoBuffer[4];
-		teapotPacket[5] = fifoBuffer[5];
-		teapotPacket[6] = fifoBuffer[8];
-		teapotPacket[7] = fifoBuffer[9];
-		teapotPacket[8] = fifoBuffer[12];
-		teapotPacket[9] = fifoBuffer[13];
-		Serial.write(teapotPacket, 14);
-		teapotPacket[11]++; // packetCount, loops at 0xFF on purpose
+			// display quaternion values in InvenSense Teapot demo format:
+			teapotPacket[2] = fifoBuffer[0];
+			teapotPacket[3] = fifoBuffer[1];
+			teapotPacket[4] = fifoBuffer[4];
+			teapotPacket[5] = fifoBuffer[5];
+			teapotPacket[6] = fifoBuffer[8];
+			teapotPacket[7] = fifoBuffer[9];
+			teapotPacket[8] = fifoBuffer[12];
+			teapotPacket[9] = fifoBuffer[13];
+			Serial.write(teapotPacket, 14);
+			teapotPacket[11]++; // packetCount, loops at 0xFF on purpose
 #endif
 		} // end of recording accelerometer data
 		else
@@ -1203,6 +1166,37 @@ void recording_state()
 	}
 }
 
+// ================================================================
+// ===                      STATES                              ===
+// ================================================================
+
+void recording_state()
+{
+	system_State.current = recording;
+	logger_debug(__LINE__, "Starting recording");
+
+	// display a splash display
+	int button_pins[] = {SW1, SW2}; // these are the buttons we'll look for input from
+	int num_pins = sizeof(button_pins) / sizeof(button_pins[0]);
+	//display_and_blank("Starting to record", "", "Please carry on!", button_pins, num_pins, DISPLAY_BLANK_INTERVAL);
+	display_and_blank(String("Starting to record"), log_filepath, String("Chive on!!!"));
+
+	// gather and record loop
+	// NOTE: this loop is used by several states and has calling-state-specific logic.  If the code returns
+	// the next state has been changed simply return.  If *unchanged* figure out what to do
+	while (system_State.next == recording)
+	{
+		record_loop();
+		/* we've come here because there's been a menu button pressed.  Flash status and resume */
+		yield();
+		delay(100);
+		logger_debug(__LINE__, String("Status button push"));
+		display_and_blank("STATUS UPDATE", "", "FIX THIS!!");
+	}
+	// if we fall out of this loop it's because next state != this state
+}
+
+
 /**
  * \brief Waiting state
  * This state is waiting on the user to either calibrate or start recording
@@ -1212,9 +1206,47 @@ void waiting_state()
 	system_State.current = waiting;
 	logger_debug(__LINE__, "Starting waiting state");
 
+	display_and_hold("", "Pls CHOOSE", "", "record", "calibrate");
 
-	system_State.previous = system_State.current;
-	system_State.next = recording;
+	int button_pins[] = {SW1, SW2}; // these are the buttons we'll look for input from
+	int num_pins = sizeof(button_pins) / sizeof(button_pins[0]);
+
+	// gather and record loop
+	// NOTE: this loop is used by several states and has calling-state-specific logic.  If the code returns
+	// the next state has been changed simply return.  If *unchanged* figure out what to do
+	while (system_State.next == waiting)
+	{
+		record_loop();
+		/* we've come here because there's been a menu button pressed.  Find out what it is
+		 *  record = SW1
+		 *  calibrate = SW2 */
+		button temp_button = find_button_pressed(button_pins, num_pins);
+		if (temp_button.pin == (gpio_num_t)SW1) // record
+		{
+			yield();
+			delay(250); // let the switch disengage - avoid false second trigger
+			system_State.next = recording;
+			logger_debug(__LINE__, String("Going to record "));
+			break;
+		}
+		else if (temp_button.pin == (gpio_num_t)SW2) // calibrate
+		{
+			yield();
+			delay(250); // let the switch disengage - avoid false second trigger
+			system_State.next = calibrate;
+			logger_debug(__LINE__, String("Going to calibration "));
+			break;
+		}
+		else
+		{
+			// we exited record_loop without a valid key pressed.  Log and reenter
+			yield();
+			delay(250); // let the switch disengage - avoid false second trigger
+			logger_error(__LINE__, String("Did not get valid button"));
+			display_and_blank("Exited record loop", "", "Without button");
+		}
+	}
+	// if we fall out of this loop it's because next state != this state, so go there
 }
 
 /**
@@ -1224,17 +1256,40 @@ void waiting_state()
 void calibration()
 {
 	system_State.current = calibrate;
-	button temp_button;
-	memcpy(&temp_button, &null_button, sizeof(null_button));
-	while (temp_button.function != not_a_button)
-	{
-		//temp_button = display_and_return_button("Calibration", system_Status, "Please touch SW1 when head is level");
-	}
-	logger_data(__LINE__, "Calibration button pushed");
-	//get_quaternion(mpu, quaternion);
-	//get_quaternion(mpu, quaternion);
 
-	display_and_blank("Thanks!", system_Status, "");
+	display_and_hold("", "Press any", "button", "this", "that");
+
+	int button_pins[] = { SW1, SW2 }; // these are the buttons we'll look for input from
+	int num_pins = sizeof(button_pins) / sizeof(button_pins[0]);
+
+	while (system_State.next == calibrate)
+	{
+		record_loop();
+		/* we've come here because there's been a menu button pressed.  Find out what it is
+		 *  record = SW1
+		 *  calibrate = SW2 */
+		const button temp_button = find_button_pressed(button_pins, num_pins);
+		if (temp_button.pin == (gpio_num_t)SW1 | temp_button.pin == (gpio_num_t)SW2) 
+		{
+			yield();
+			delay(250); // let the switch disengage - avoid false second trigger
+			system_State.next = recording;
+			logger_data(__LINE__, "Calibration button pushed");
+			logger_debug(__LINE__, String("Going to record "));
+			break;
+		}
+
+		else
+		{
+			// we exited record_loop without a valid key pressed.  Log and reenter
+			yield();
+			delay(250); // let the switch disengage - avoid false second trigger
+			logger_error(__LINE__, String("Did not get valid button"));
+			display_and_blank("Exited record loop", "", "Without button");
+		}
+	}
+	// if we fall out of this loop it's because next state != this state, so go there
+
 }
 
 /**
@@ -1262,8 +1317,10 @@ void going_off_state()
 		//                                               "To cancel release SW3", "", "", button_pins, num_pins,
 		//                                               DISPLAY_BLANK_INTERVAL/3);
 
-		display_and_hold(sardprintf("Power down in %d secs", i), "To cancel re-press SW3", "",
-		                 DISPLAY_BLANK_INTERVAL / checks_per_interval);
+		display_and_hold(sardprintf("Power down in %d secs", i), "To cancel re-press SW3", "");
+
+		yield();
+		delayMicroseconds(DISPLAY_BLANK_INTERVAL / 3);
 
 		if (read_button_pressed(SW3))
 		{

@@ -6,7 +6,7 @@
 #include "Logging.h"
 
 system_status system_Status;
-button find_button_pressed(button buttons[]);
+button find_button_pressed(int buttons[], int num_pins);
 
 String dump_io_pins();
 
@@ -118,7 +118,6 @@ system_status get_system_status()
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 button buttons[total_buttons];
-bool read_button_pressed(int pin);
 
 void init_UI()
 {
@@ -218,8 +217,8 @@ void display_and_blank(String title, String heading, String message)
 	char* new_title = (char* ) title.c_str();
 	char* new_heading = (char*) heading.c_str();
 	char* new_message = (char*) message.c_str();
-	int buttons[] = {0}, num_pins = 0;
-	display_and_blank(new_title, new_heading, new_title,buttons, num_pins, DISPLAY_BLANK_INTERVAL);
+	int button_pins[] = {0} , num_pins = 0, timeout = DISPLAY_BLANK_INTERVAL;
+	display_and_blank(new_title, new_heading, new_title, button_pins, num_pins, timeout);
 }
 void display_and_blank(char* title, char* heading, char* message, int button_pins[], int num_pins, int timeout = DISPLAY_BLANK_INTERVAL)
 {
@@ -267,7 +266,7 @@ void display_and_blank(char* title, char* heading, char* message, int button_pin
 }
 
 // display a message for a fixed period of time.  Do not blank
-void display_and_hold(String title, char* heading, char* message,int timeout = DISPLAY_BLANK_INTERVAL)
+void display_and_hold(String title, char* heading, char* message)
 {
 	blank_display();
 	display.setTextSize(1);
@@ -278,32 +277,45 @@ void display_and_hold(String title, char* heading, char* message,int timeout = D
 	display.println(message);
 	display.setCursor(0, 0);
 	display.display(); // actually display all of the above
-
-	// now go to sleep. for timeout
-	esp_sleep_enable_timer_wakeup((uint64_t)timeout);
-	/* Enter sleep mode */
-	esp_light_sleep_start();
-
-	/* Execution continues here after wakeup */
-	/* Determine wake up reason */
-	const char* wakeup_reason;
-	switch (esp_sleep_get_wakeup_cause())
-	{
-	case ESP_SLEEP_WAKEUP_TIMER:
-		wakeup_reason = "timer";
-		break;
-	case ESP_SLEEP_WAKEUP_GPIO:
-		wakeup_reason = "pin";
-		break;
-	default:
-		wakeup_reason = "other";
-		break;
-	}
-	logger_debug(__LINE__, String("Exiting from d&b sleep reason:") + String(wakeup_reason));
-	esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
 }
+// display a message for a fixed period of time with button labels.  Do not blank
+void display_and_hold(const char* title, const char* heading, const char* message, const char* upper_label, const char* lower_label)
+{
+	const String msg[3] = { title, heading, message };
+	const String upper_label_str = upper_label;
+	const String lower_label_str = lower_label;
 
+	// first determine position of label/heading divider and text length
+	const auto label_width = max(upper_label_str.length(), lower_label_str.length());
+	const auto text_start = label_width + 3;
+	const auto text_len = max(0, 22 - (int)text_start);
+	logger_debug(__LINE__, sardprintf("label_width:%d text_len:%d", label_width, text_len));
 
+	// now compose three lines and display them
+	String line[3] = { upper_label_str,"",lower_label_str }; // start with labels
+	// pad out spaces to the text
+	const unsigned spaces[] = { text_start - upper_label_str.length(), text_start ,text_start - lower_label_str.length() };
+	// compose and display
+	blank_display();
+	display.setTextSize(1);
+	display.setTextColor(WHITE);
+	display.setCursor(0, 0);
+
+	for (auto i = 0; i < 3; i++)
+	{
+		logger_debug(__LINE__, sardprintf("Line %d pad=%d", i, spaces[i]));
+		for (unsigned j = 0; j < spaces[i]-2; j++)
+		{
+			line[i] += " ";
+		}
+		// add the divider character and space
+		line[i] += "| ";
+		// add the message
+		line[i] += msg[i].substring(0U,22U- text_start-1);
+		display.println(line[i]);
+	}
+	display.display(); // actually display all of the above
+}
 button display_and_return_button(const char* title, system_status status, char* message, char* right_label,
                                  char* left_label,
                                  int button_pins[], int num_pins, int timeout = DISPLAY_BLANK_INTERVAL)
@@ -371,7 +383,7 @@ button display_and_return_button(const char* title, system_status status, char* 
 	display.display();
 	esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
 	esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
-	if (was_button) return find_button_pressed(buttons);
+	if (was_button) return find_button_pressed(button_pins, num_pins);
 	logger_debug(__LINE__, String("No button press detected"));
 	return null_button;
 }
@@ -385,25 +397,101 @@ button display_and_return_button(const String title, system_status status, char*
 	display_and_return_button(new_title, status, message, right_label, left_label, button_pins, num_pins, timeout);
 }
 
-/** Find the first pressed button.
+button display_and_return_button(char* title, char* heading, char* message, char* right_label, char* left_label,
+	int button_pins[], int num_pins)
+{
+	// put up a display with button labels.  Sleep until a button is pushed or timeout is reached
+	blank_display();
+	display.setTextSize(1);
+	display.setTextColor(WHITE);
+	display.setCursor(0, 0);
+	display.println(title);
+	display.println(heading);
+	display.println(message);
+	// now properly locate the labels
+	const auto line_length = 22;
+	char label_line[line_length + 1]; // line_length + a null at end for delimiter
+	int index;
+	for (index = 0; index < line_length, right_label[index] != 0; index++) label_line[index] = left_label[index];
+	//left from left
+	// index now points to leftmost blank in label_line.  Figure out len of right label and fill in the rest
+	int right_length;
+	for (right_length = 0; right_label[right_length] != 0; right_length++); //right_length = len of right_label
+	for (auto i = index; i <= line_length; i++)
+	{
+		if (i < (line_length - right_length))
+		{
+			label_line[i] = 32; // pad blank spaces until it's time to add right_label
+		}
+		else
+		{
+			label_line[i] = right_label[i - index]; // add right label
+		}
+	}
+	display.println(label_line);
+	display.setCursor(0, 0);
+	display.display(); // actually display all of the above
+
+	// now go to sleep. return either a valid button press or timeout
+	//logger_debug(__LINE__, sardprintf("going to sleep for %d us", timeout));
+	enable_wakeup_pin(button_pins, num_pins, GPIO_INTR_LOW_LEVEL);
+	esp_sleep_enable_gpio_wakeup();
+	esp_light_sleep_start();
+
+	/* Execution continues here after wakeup */
+	disable_wakeup_pin(button_pins, num_pins);
+	/* Determine wake up reason */
+	const char* wakeup_reason;
+	bool was_button = false; //indicates whether it was a switch waking me up
+	switch (esp_sleep_get_wakeup_cause())
+	{
+	case ESP_SLEEP_WAKEUP_TIMER:
+		wakeup_reason = "timer";
+		break;
+	case ESP_SLEEP_WAKEUP_GPIO:
+		wakeup_reason = "pin";
+		was_button = true;
+		break;
+	default:
+		wakeup_reason = "other";
+		break;
+	}
+	logger_debug(__LINE__, String("Exiting from d&RB sleep reason:") + String(wakeup_reason));
+	display.clearDisplay();
+	display.display();
+	esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
+	if (was_button) return find_button_pressed(button_pins, num_pins);
+	logger_debug(__LINE__, String("No button press detected"));
+	return null_button;
+}
+
+
+/** Find the first pressed button among button_pins
  * scan buttons until find one pressed.  Return it
  * TODO decide whether to scan all instead of taking first
  */
-button find_button_pressed(button buttons[])
+button find_button_pressed(int button_pins[], int num_pins)
 {
 	//const int all_buttons[] = { 0,1,2,3,4,5,12,13,14,15,16,17,18,19,21,22,23,25,26,27,32,33,34,35,36,39 };
 
 	logger_debug(__LINE__, dump_io_pins());
 
-	for (int i = 0; i < total_buttons; i++)
+	for (auto i = 0; i < num_pins; i++)
 	{
-		if (gpio_get_level(buttons[i].pin) == BUTTON_PRESSED)
+		if (gpio_get_level((gpio_num_t)button_pins[i]) == BUTTON_PRESSED)
 		{
-			buttons[i].pressed = read_button_pressed(i); //TODO decide whether we need to debounce or not
-			return buttons[i];
+			for (auto j = 0; j < total_buttons; j++)
+			{
+				if (buttons[i].pin == (gpio_num_t)button_pins[i])
+				{
+					buttons[i].pressed = read_button_pressed(i); //TODO decide whether we need to debounce or not
+					logger_debug(__LINE__, sardprintf("Button press on pin %d detected", button_pins[i]));
+					return buttons[i];
+				}
+			}
 		}
 	}
-	logger_error(__LINE__, String("Returning null button but should have found real button"));
+	logger_error(__LINE__, String("Expected to find real button, but returning null"));
 	return null_button;
 }
 

@@ -89,10 +89,12 @@ const button null_button = { .pin = (gpio_num_t) -1 ,.function = not_a_button,.p
 void init_UI();
 void init_buttons(const gpio_num_t pins[], const button_function function[], const int button_count);
 bool read_button_pressed(int pin);
+button find_button_pressed(int button_pins[], int num_pins);
 String dump_io_pins(int pins[], int num_pins);
 void blank_display();
 void bit_display(byte* image);
-void display_and_hold(String title, char* heading, char* message, int timeout);
+void display_and_hold(String title, char* heading, char* message);
+void display_and_hold(const char* title, const char* heading, const char* message, const char* upper_label, const char* lower_label);
 void display_and_blank(char* title, system_status status, char*message);
 void display_and_blank(String title, String heading, String message);
 void display_and_blank(char* title, char* heading, char* message, int button_pins[], int num_pins, int timeout);
@@ -101,6 +103,8 @@ button display_and_return_button(const char* title, system_status status, char* 
 	int button_pins[], int num_pins, int timeout);
 button display_and_return_button(String title, system_status status, char* message, char* right_label, char* left_label,
 	int button_pins[], int num_pins, int timeout);
+button display_and_return_button(char* title, char* heading, char* message, char* right_label, char* left_label,
+	int button_pins[], int num_pins);
 void enable_wakeup_pin(const int pins[], const int no_pins, const gpio_int_type_t intr_type);
 void disable_wakeup_pin(int pins[], int no_pins);
 
