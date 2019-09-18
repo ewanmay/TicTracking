@@ -260,3 +260,7 @@ paket-files/
 __pycache__/
 *.pyc
 alarmcpp.pdf
+
+*.filters
+
+TicTracking/__vm/

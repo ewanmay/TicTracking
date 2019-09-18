@@ -11,7 +11,6 @@ button find_button_pressed(int buttons[], int num_pins);
 String dump_io_pins();
 
 
-
 //
 // initialize status_area struct
 // 
@@ -91,6 +90,15 @@ system_status get_system_status()
 	return temp_status;
 }
 
+/* log which core we are on
+ *
+ *
+ */
+void log_core(const int line)
+{
+	logger_debug(line, sardprintf("running on core: %d", xPortGetCoreID()));
+}
+
 /***********************************
  *
  * display
@@ -119,6 +127,143 @@ system_status get_system_status()
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 button buttons[total_buttons];
 
+// display blanking
+#define APB_Freq 80 // timer clock in Mhz
+#define TIMER_PRESCALE APB_Freq * 10000/100  // prescale to  10 mS
+#define TIMER_INTERRUPT_AT  DISPLAY_BLANK_INTERVAL/100  // Blank interval is us > 100 us
+hw_timer_t* timer = nullptr;
+portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
+volatile bool turn_display_off = false; // indicates whether the display should be blanked
+
+/** ISR for display turn-off flag
+ *
+ */
+void IRAM_ATTR set_turn_display_off()
+{
+	portENTER_CRITICAL_ISR(&timerMux);
+	turn_display_off = true;
+	portEXIT_CRITICAL_ISR(&timerMux);
+}
+
+/** Get the display turn-off flag
+ *
+ */
+bool get_turn_display_off()
+{
+	portENTER_CRITICAL_ISR(&timerMux);
+	const bool temp = turn_display_off;
+	portEXIT_CRITICAL_ISR(&timerMux);
+	return temp;
+}
+
+/** Reset the display turn-off flag
+ * 
+ */
+void reset_turn_display_off()
+{
+	portENTER_CRITICAL_ISR(&timerMux);
+	turn_display_off = false;
+	portEXIT_CRITICAL_ISR(&timerMux);
+}
+
+void init_display_timer()
+{
+	timer = timerBegin(0, TIMER_PRESCALE, true);
+	logger_debug(__LINE__, sardprintf("Timer prescale: %d", TIMER_PRESCALE));
+
+	timerAttachInterrupt(timer, &set_turn_display_off, false);
+}
+
+/** Start display timer.
+ * Set an interrupt to blank the display in interval mS
+ * TODO may need to turn on display
+ */
+void start_display_timer(const int interval = TIMER_INTERRUPT_AT)
+{
+	//display.ssd1306_command(0xAF);  // a direct command to turn on the display.  Hopefully it works!
+
+
+	reset_turn_display_off(); // clear any previous display interrupts
+
+	timerEnd(timer); // this is crazy but maybe it will work TODO check this
+	timer = timerBegin(0, TIMER_PRESCALE, true);
+	timerAttachInterrupt(timer, &set_turn_display_off, false);
+
+
+	timerAlarmDisable(timer);
+	timerStop(timer);
+	timerWrite(timer, 0);
+	timerAlarmWrite(timer, (uint64_t)interval, false);
+	timerAlarmEnable(timer);
+	timerStart(timer);
+
+	//log_core(__LINE__);
+	logger_debug(__LINE__, sardprintf("Display timer set up for interval of: %d", interval));
+	//logger_debug(__LINE__, sardprintf("timerRead: %d", timerRead(timer)));
+	//logger_debug(__LINE__, sardprintf("Checking at exit timerStarted: %d timerAlarmEnabled: %d", timerStarted(timer),
+		//timerAlarmEnabled(timer)));
+}
+
+/** Stop display timer.
+ * Call this when you have a new message to display
+ * TODO may need to turn on display
+ */
+void stop_display_timer()
+{
+	timerAlarmDisable(timer);
+	timerStop(timer);
+}
+
+/** Get display timer value.
+ * Call this when you have a new message to display
+ * TODO may need to turn on display
+ */
+uint64_t get_display_timer()
+{
+	//uint64_t timer_value = timerRead(timer);
+	//logger_debug(__LINE__, sardprintf("timerStarted: %d timerAlarmEnabled: %d", timerStarted(timer),
+	//	timerAlarmEnabled(timer)));
+//	Serial.printf("Timer config: %#X\n", timerGetConfig(timer));
+	return timerRead(timer);
+}
+
+void wait_display_timer()
+{
+	uint64_t timer_value = 0;;
+	//while (timer_value <= TIMER_INTERRUPT_AT | (timer_value == 0 && timerStarted(timer)))
+	while (timer_value <= TIMER_INTERRUPT_AT)
+		//while (!turn_display_off)
+	{
+		//yield();
+		//logger_debug(__LINE__, sardprintf("Waiting for timer: %d turn_display_off:%d ", timer_value, turn_display_off));
+		//logger_debug(__LINE__, sardprintf("wait display timerRead: %d timerStarted: %d timerAlarmEnabled: %d", timer_value,  timerStarted(timer),
+		//	timerAlarmEnabled(timer)));
+		timer_value = timerRead(timer);
+		//logger_debug(__LINE__, sardprintf("timerStarted: %d timerAlarmEnabled: %d", timerStarted(timer),
+		//                                  timerAlarmEnabled(timer)));
+		if (!timerStarted(timer))
+		{
+			logger_debug(__LINE__, "Ending display wait because timerStarted is 0");
+			break;
+		}
+		yield();
+		delay(500);
+	}
+	//log_core(__LINE__);
+	//logger_debug(__LINE__, sardprintf("Exiting wait at: %d and stopping timer.  Turn_display_off:%d ", timer_value,
+	//                                  turn_display_off));
+	//logger_debug(__LINE__, sardprintf("Exiting wait at: %d, stopping timer and disabling alarm.", timer_value,
+	//                                  turn_display_off));
+//	Serial.printf("Timer config: %#X\n", timerGetConfig(timer));
+	timerStop(timer);
+	timerAlarmDisable(timer);
+//	Serial.printf("Stopped timer config: %#X\n", timerGetConfig(timer));
+	timerWrite(timer, 0);
+//	Serial.printf("Written timer config: %#X\n", timerGetConfig(timer));
+	logger_debug(__LINE__, sardprintf("Checking at display wait exit  timerStarted: %d timerAlarmEnabled: %d", timerStarted(timer), timerAlarmEnabled(timer)));
+}
+
+
 void init_UI()
 {
 	display.begin();
@@ -126,6 +271,7 @@ void init_UI()
 	gpio_num_t pins[] = {(gpio_num_t)SW1, (gpio_num_t)SW2, (gpio_num_t)SW3};
 	button_function function[] = {mom1, mom2, on_off};
 	init_buttons(pins, function, total_buttons);
+	init_display_timer();
 }
 
 /** Initialize buttons.
@@ -171,6 +317,8 @@ void bit_display(byte* image)
 
 void display_and_blank(char* title, system_status status, char* message)
 {
+	wait_display_timer(); // check the timer before starting
+	
 	blank_display();
 	display.setTextSize(1);
 	display.setTextColor(WHITE);
@@ -179,8 +327,13 @@ void display_and_blank(char* title, system_status status, char* message)
 	display.println(status.overall_status.msg);
 	display.println(message);
 	display.setCursor(0, 0);
+
+	logger_debug(__LINE__, sardprintf("Displaying: %s", title));
 	display.display(); // actually display all of the above
 
+	start_display_timer(); // an interrupt driven approach to blanking the display
+
+# if 0 // old approach
 	// now go to sleep. return either a valid button press or timeout
 	/* Wake up in 2 seconds, or when button is pressed */
 
@@ -211,17 +364,24 @@ void display_and_blank(char* title, system_status status, char* message)
 	display.display();
 	esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
 	esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
+#endif
 }
+
 void display_and_blank(String title, String heading, String message)
 {
-	char* new_title = (char* ) title.c_str();
-	char* new_heading = (char*) heading.c_str();
-	char* new_message = (char*) message.c_str();
-	int button_pins[] = {0} , num_pins = 0, timeout = DISPLAY_BLANK_INTERVAL;
-	display_and_blank(new_title, new_heading, new_title, button_pins, num_pins, timeout);
+	char* new_title = (char*)title.c_str();
+	char* new_heading = (char*)heading.c_str();
+	char* new_message = (char*)message.c_str();
+	//logger_debug(__LINE__, sardprintf("T: %s H: %s M:%s", new_title, new_heading, new_message));
+	int timeout = TIMER_INTERRUPT_AT;
+	display_and_blank(new_title, new_heading, new_message, timeout);
 }
-void display_and_blank(char* title, char* heading, char* message, int button_pins[], int num_pins, int timeout = DISPLAY_BLANK_INTERVAL)
+
+void display_and_blank(char* title, char* heading, char* message, int timeout = TIMER_INTERRUPT_AT)
 {
+	wait_display_timer(); // check the timer before starting
+	
+
 	blank_display();
 	display.setTextSize(1);
 	display.setTextColor(WHITE);
@@ -230,7 +390,13 @@ void display_and_blank(char* title, char* heading, char* message, int button_pin
 	display.println(heading);
 	display.println(message);
 	display.setCursor(0, 0);
+	logger_debug(__LINE__, sardprintf("Displaying: %s", title));
+	display.ssd1306_command(0xAF); // try this - it can't hurt!
 	display.display(); // actually display all of the above
+
+	start_display_timer(timeout); // an interrupt driven approach to blanking the display
+
+# if 0 // old approach
 
 	// now go to sleep. return either a valid button press or timeout
 	/* Wake up in 2 seconds, or when button is pressed */
@@ -263,11 +429,14 @@ void display_and_blank(char* title, char* heading, char* message, int button_pin
 	display.display();
 	esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
 	esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
+#endif
 }
 
 // display a message for a fixed period of time.  Do not blank
 void display_and_hold(String title, char* heading, char* message)
 {
+	wait_display_timer(); // check the timer before starting
+	
 	blank_display();
 	display.setTextSize(1);
 	display.setTextColor(WHITE);
@@ -276,12 +445,15 @@ void display_and_hold(String title, char* heading, char* message)
 	display.println(heading);
 	display.println(message);
 	display.setCursor(0, 0);
+	logger_debug(__LINE__, sardprintf("Displaying: %s", title.c_str()));
 	display.display(); // actually display all of the above
 }
+
 // display a message for a fixed period of time with button labels.  Do not blank
-void display_and_hold(const char* title, const char* heading, const char* message, const char* upper_label, const char* lower_label)
+void display_and_hold(const char* title, const char* heading, const char* message, const char* upper_label,
+                      const char* lower_label)
 {
-	const String msg[3] = { title, heading, message };
+	const String msg[3] = {title, heading, message};
 	const String upper_label_str = upper_label;
 	const String lower_label_str = lower_label;
 
@@ -289,12 +461,22 @@ void display_and_hold(const char* title, const char* heading, const char* messag
 	const auto label_width = max(upper_label_str.length(), lower_label_str.length());
 	const auto text_start = label_width + 3;
 	const auto text_len = max(0, 22 - (int)text_start);
-	logger_debug(__LINE__, sardprintf("label_width:%d text_len:%d", label_width, text_len));
+	//logger_debug(__LINE__, sardprintf("label_width:%d text_len:%d", label_width, text_len));
 
 	// now compose three lines and display them
-	String line[3] = { upper_label_str,"",lower_label_str }; // start with labels
+	String line[3] = {upper_label_str, "", lower_label_str}; // start with labels
 	// pad out spaces to the text
-	const unsigned spaces[] = { text_start - upper_label_str.length(), text_start ,text_start - lower_label_str.length() };
+	const unsigned spaces[] = {
+		text_start - upper_label_str.length(),
+		text_start,
+		text_start - lower_label_str.length()
+	};
+
+	//
+	// wait for any blank and hold display
+	//
+	wait_display_timer();
+
 	// compose and display
 	blank_display();
 	display.setTextSize(1);
@@ -303,19 +485,20 @@ void display_and_hold(const char* title, const char* heading, const char* messag
 
 	for (auto i = 0; i < 3; i++)
 	{
-		logger_debug(__LINE__, sardprintf("Line %d pad=%d", i, spaces[i]));
-		for (unsigned j = 0; j < spaces[i]-2; j++)
+		//logger_debug(__LINE__, sardprintf("Line %d pad=%d", i, spaces[i]));
+		for (unsigned j = 0; j < spaces[i] - 2; j++)
 		{
 			line[i] += " ";
 		}
 		// add the divider character and space
 		line[i] += "| ";
 		// add the message
-		line[i] += msg[i].substring(0U,22U- text_start-1);
+		line[i] += msg[i].substring(0U, 22U - text_start - 1);
 		display.println(line[i]);
 	}
 	display.display(); // actually display all of the above
 }
+
 button display_and_return_button(const char* title, system_status status, char* message, char* right_label,
                                  char* left_label,
                                  int button_pins[], int num_pins, int timeout = DISPLAY_BLANK_INTERVAL)
@@ -398,7 +581,7 @@ button display_and_return_button(const String title, system_status status, char*
 }
 
 button display_and_return_button(char* title, char* heading, char* message, char* right_label, char* left_label,
-	int button_pins[], int num_pins)
+                                 int button_pins[], int num_pins)
 {
 	// put up a display with button labels.  Sleep until a button is pushed or timeout is reached
 	blank_display();
@@ -474,7 +657,7 @@ button find_button_pressed(int button_pins[], int num_pins)
 {
 	//const int all_buttons[] = { 0,1,2,3,4,5,12,13,14,15,16,17,18,19,21,22,23,25,26,27,32,33,34,35,36,39 };
 
-	logger_debug(__LINE__, dump_io_pins());
+	//logger_debug(__LINE__, dump_io_pins());
 
 	for (auto i = 0; i < num_pins; i++)
 	{
@@ -582,10 +765,11 @@ void disable_wakeup_pin(int pins[], int no_pins)
 		//gpio_reset_pin((gpio_num_t)pins[i]);
 	}
 }
+
 String dump_io_pins()
 {
 	//const int all_buttons[] = { 0, 1, 2, 3, 4, 5, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 32, 33, 34, 35, 36, 39}
-	const int all_buttons[] = { 4, 15, 27, 34, 36 };
+	const int all_buttons[] = {4, 15, 27, 34, 36};
 	String msg = "Pins ";
 	for (auto i = 0; i < sizeof(all_buttons) / sizeof(all_buttons[0]); i++)
 	{
@@ -593,6 +777,7 @@ String dump_io_pins()
 	}
 	return msg;
 }
+
 String dump_io_pins(int pins[], int num_pins)
 {
 	//const int all_buttons[] = { 0, 1, 2, 3, 4, 5, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 32, 33, 34, 35, 36, 39}

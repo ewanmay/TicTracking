@@ -49,22 +49,6 @@ void set_area_status(area_status area_status);
 void set_system_status();
 system_status get_system_status();
 
-/***********************************
- *
- * display
- *
- ***********************************/
-#include <Wire.h>
-//#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
-
-#define SCREEN_WIDTH 128 // OLED display width, in pixels
-#define SCREEN_HEIGHT 32 // OLED display height, in pixels
-
- // Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
-#define OLED_RESET     4 // Reset pin # (or -1 if sharing Arduino reset pin)
-extern Adafruit_SSD1306 display;
-#define DISPLAY_BLANK_INTERVAL 3*1000000  // this is how long the system will show a display before blanking (in us)
 
 /***********************************
  *
@@ -91,13 +75,45 @@ void init_buttons(const gpio_num_t pins[], const button_function function[], con
 bool read_button_pressed(int pin);
 button find_button_pressed(int button_pins[], int num_pins);
 String dump_io_pins(int pins[], int num_pins);
+
+void enable_wakeup_pin(const int pins[], const int no_pins, const gpio_int_type_t intr_type);
+void disable_wakeup_pin(int pins[], int no_pins);
+
+bool button_press_quick_check(int pin);
+
+/***********************************
+ *
+ * display
+ *
+ ***********************************/
+#include <Wire.h>
+ //#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 32 // OLED display height, in pixels
+
+ // Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
+#define OLED_RESET     4 // Reset pin # (or -1 if sharing Arduino reset pin)
+extern Adafruit_SSD1306 display;
+#define DISPLAY_BLANK_INTERVAL 3*1000000  // this is how long the system will show a display before blanking (in us)
+
 void blank_display();
+//extern volatile bool turn_display_off;
+void set_turn_display_off();
+bool get_turn_display_off();
+void reset_turn_display_off();
+
+void start_display_timer(const int interval);
+void stop_display_timer();
+uint64_t get_display_timer();
+
 void bit_display(byte* image);
 void display_and_hold(String title, char* heading, char* message);
 void display_and_hold(const char* title, const char* heading, const char* message, const char* upper_label, const char* lower_label);
 void display_and_blank(char* title, system_status status, char*message);
 void display_and_blank(String title, String heading, String message);
-void display_and_blank(char* title, char* heading, char* message, int button_pins[], int num_pins, int timeout);
+void display_and_blank(char* title, char* heading, char* message, int timeout);
 
 button display_and_return_button(const char* title, system_status status, char* message, char* right_label, char* left_label,
 	int button_pins[], int num_pins, int timeout);
@@ -105,10 +121,9 @@ button display_and_return_button(String title, system_status status, char* messa
 	int button_pins[], int num_pins, int timeout);
 button display_and_return_button(char* title, char* heading, char* message, char* right_label, char* left_label,
 	int button_pins[], int num_pins);
-void enable_wakeup_pin(const int pins[], const int no_pins, const gpio_int_type_t intr_type);
-void disable_wakeup_pin(int pins[], int no_pins);
 
-bool button_press_quick_check(int pin);
+void log_core(const int line);
+
 
 
 #endif

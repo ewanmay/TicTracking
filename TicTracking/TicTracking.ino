@@ -118,6 +118,7 @@ void record_time(String msg, long time, int line_no, long start)
 RTC_PCF8523 rtc;
 File logfile; // for storing all log information
 String log_filepath;
+String log_filename;
 
 #ifdef LOGGING
 //#include "Logging.h"
@@ -279,6 +280,8 @@ volatile bool mpuInterruptLeft = false; // indicates whether MPU interrupt pin h
 const int battery_pin = A13;
 const int full_scale = 3646; //full scale output from ADC
 const float full_voltage[] = {4.2, 3.95, 3.8, 3.75, 3.65, 3.0}; // from 0 to 100% discharge in 20% increments
+String battery_volts_str; // holds a string voltage
+String battery_capy_str; // holds a string caoacity
 
 float get_battery_voltage()
 {
@@ -331,49 +334,6 @@ String getstring()
 }
 
 // ================================================================
-// ===                      LIST DIRECTORIES                    ===
-// ================================================================
-
-void listDir(fs::FS& fs, const char* dirname, uint8_t levels)
-{
-	Serial.printf("Listing directory: %s\n", dirname);
-
-	File root = fs.open(dirname);
-	if (!root)
-	{
-		Serial.println("Failed to open directory");
-		return;
-	}
-	if (!root.isDirectory())
-	{
-		Serial.printf("%s is not a directory\n", dirname);
-		return;
-	}
-
-	File file = root.openNextFile();
-	while (file)
-	{
-		if (file.isDirectory())
-		{
-			Serial.print("  DIR : ");
-			Serial.println(file.name());
-			if (levels)
-			{
-				listDir(fs, file.name(), levels - 1);
-			}
-		}
-		else
-		{
-			Serial.print("  FILE: ");
-			Serial.print(file.name());
-			Serial.print("  SIZE: ");
-			Serial.println(file.size());
-		}
-		file = root.openNextFile();
-	}
-}
-
-// ================================================================
 // ===                    INITIALIZE DMP                        ===
 // ================================================================
 
@@ -386,36 +346,7 @@ void initializeDmp(int devStatus, int interruptPin, Multi_MPU& mpu)
 		mpu.CalibrateGyro(6);
 		mpu.PrintActiveOffsets();
 		// turn on the DMP, now that it's ready
-		//Serial.println(F("Enabling DMP..."));
 		mpu.setDMPEnabled(true);
-
-		// enable Arduino interrupt detection
-		//Serial.print(F("Enabling interrupt detection (Arduino external interrupt "));
-		//Serial.print(digitalPinToInterrupt(interruptPin));
-		//Serial.println(F(")..."));
-		//		if (interruptPin == INTERRUPT_PIN_LEFT)
-		//		{
-		//attachInterrupt(digitalPinToInterrupt(interruptPin), dmpDataReadyLeft, HIGH);
-		//mpuIntStatus_left = mpu.getIntStatus();
-		//Serial.println("Set left interrupt pin");
-		//	Serial.println("NOT SET: left interrupt pin");
-		//	Serial.print("Left ");
-		//}
-		//else if (interruptPin == INTERRUPT_PIN_RIGHT)
-		//{
-		//attachInterrupt(digitalPinToInterrupt(interruptPin), dmpDataReadyRight,HIGH );
-		//mpuIntStatus_right = mpu.getIntStatus();
-		//Serial.println("Set right interrupt pin");
-		//	Serial.println("NOT SET: right interrupt pin");
-		//	Serial.print("Right ");
-		//}
-
-		// instead set interrupt to be latching /  positive clearing
-		//mpu.setInterruptLatch(false);
-		//mpu.setInterruptLatchClear(true);
-
-		// set our DMP Ready flag so the main loop() function knows it's okay to use it
-		Serial.println(F("DMP ready!"));
 
 		// get expected DMP packet size for later comparison
 		packetSize = mpu.dmpGetFIFOPacketSize();
@@ -536,6 +467,7 @@ void setup()
 void setup1()
 {
 	system_State.current = startup;
+
 	logger_debug(__LINE__, "Starting startup state");
 	if (!Serial)
 	{
@@ -550,6 +482,7 @@ void setup1()
 	// set up UI
 	//
 	init_UI();
+	logger_debug(__LINE__, "Display > Starting up");
 	display_and_blank("Starting up", system_Status, "Please stand by");
 
 	//
@@ -574,17 +507,16 @@ void setup1()
 	// Set up logging
 	Log_Level excludes[] = {data}; //exclude printing data logs because so voluminous
 	set_logger_filter(excludes, sizeof(excludes) / sizeof(excludes[0]), 10);
-	if (!SD.begin())
+	while (!SD.begin())
 	{
-		Serial.println("SD initialization failed! ... stopping");
-		while (1);
+		logger_debug(__LINE__, "SD initialization failed! ... retrying");
+		delay(1000);
 	}
-	else
-	{
-		//Serial.println("SD initialization success");
-		logger_debug(__LINE__, "SD initialization ok");
-		display_and_blank("SD card ok", system_Status, "Please stand by.");
-	}
+
+	//Serial.println("SD initialization success");
+	logger_debug(__LINE__, "Display > SD initialization ok");
+	display_and_blank("SD card ok", system_Status, "Please stand by.");
+
 
 	//Next, turn off the MPU6050's by moving their I2C addresses to the higher value AD0
 	digitalWrite(AD0_PIN_LEFT, HIGH);
@@ -600,7 +532,7 @@ void setup1()
 	}
 	else
 	{
-		logger_debug(__LINE__, "RTC initialization ok");
+		logger_debug(__LINE__, "display > RTC initialization ok");
 		display_and_blank("RTC ok", system_Status, "Please stand by..");
 		//Serial.println("RTC initialization success");
 	}
@@ -626,6 +558,10 @@ void setup1()
 		{
 			//Serial.printf("Log file: %s is available\n\r", log_filepath.c_str());
 			logfile = logger_setup(log_filepath);
+			logger_debug(__LINE__, sardprintf("Checking filename start: %d  end:%d", log_filepath.indexOf(String("Log ")),
+				log_filepath.length() - 4));
+			log_filename = log_filepath.substring(log_filepath.indexOf(String("Log ")),
+				log_filepath.length()-4);
 			break;
 		}
 	}
@@ -637,10 +573,11 @@ void setup1()
 	//	get_battery_capacity()));
 	msg = "Opening " + log_filepath + " at " + now.timestamp();
 	logger_info(__LINE__, msg);
-	logger_info(__LINE__, sardprintf("Battery voltage: %f Capacity: %d/100", get_battery_voltage(),
-	                                 get_battery_capacity()));
-	display_and_blank(sardprintf("Battery: %fV", get_battery_voltage()),
-	                  sardprintf("Capacity: %d/100", get_battery_capacity()), String(" Ready to go!"));
+	battery_capy_str = sardprintf("Batt Cap'y: %d/100", get_battery_capacity());
+	battery_volts_str = sardprintf("Batt Volts: %f ", get_battery_voltage());
+	logger_info(__LINE__, battery_volts_str + battery_capy_str);
+	logger_debug(__LINE__, "Display > Battery status");
+	display_and_blank(battery_volts_str, "", battery_capy_str);
 
 
 #if 0 //TODO get this to work
@@ -657,12 +594,9 @@ void setup1()
 #endif
 
 #endif
-
-
 	while (!dmpReady)
 	{
 		// verify connection
-		//Serial.println(F("Testing device connections..."));
 		Serial.println(mpu_right.testConnection()
 			               ? F("MPU6050 right side connection successful")
 			               : F("MPU6050 right side connection failed"));
@@ -672,7 +606,6 @@ void setup1()
 
 		// initialize device
 		Serial.print(F("Initializing I2C devices...at "));
-		// Serial.println(mpu_left.getDeviceID());
 		mpu_left.initialize();
 		mpu_right.initialize();
 
@@ -689,12 +622,21 @@ void setup1()
 
 
 		// load and configure the DMP`s
-		Serial.println(F("Initializing right DMP..."));
+		//Serial.println(F("Initializing right DMP..."));
 		devStatus_right = mpu_right.dmpInitialize();
-		if (!devStatus_right) display_and_blank("Right MPU ok", system_Status, "Please stand by...");
+		if (!devStatus_right)
+		{
+			logger_debug(__LINE__, "Display > Right MPU ok");
+			display_and_blank("Right MPU ok", system_Status, "Please stand by...");
+		}
 		Serial.println(F("Initializing left DMP..."));
-		if (!devStatus_left) display_and_blank("Left MPU ok", system_Status, "Please stand by....");
+
 		devStatus_left = mpu_left.dmpInitialize();
+		if (!devStatus_left)
+		{
+			logger_debug(__LINE__, "Display > Left MPU ok");
+			display_and_blank("Left MPU init ok", system_Status, "Please stand by....");
+		}
 		// supply your own gyro offsets here, scaled for min sensitivity
 		mpu_left.setXGyroOffset(220);
 		mpu_left.setYGyroOffset(76);
@@ -704,6 +646,8 @@ void setup1()
 		mpu_right.setYGyroOffset(76);
 		mpu_right.setZGyroOffset(-85);
 		mpu_right.setZAccelOffset(1788); // 1688 
+		logger_debug(__LINE__, "Display > DMP calibration");
+		display_and_blank("MPU's warming up", system_Status, "Please stand by.....");
 		initializeDmp(devStatus_right, INTERRUPT_PIN_RIGHT, mpu_right);
 		initializeDmp(devStatus_left, INTERRUPT_PIN_LEFT, mpu_left);
 
@@ -728,7 +672,8 @@ void setup1()
 	system_State.previous = startup;
 	system_State.next = waiting;
 	logger_debug(__LINE__, "Setup complete");
-	display_and_blank("All ok", system_Status, "Please stand by....!");
+	logger_debug(__LINE__, "Display > All ok");
+	display_and_blank("All ok", system_Status, "Please stand by.....!");
 } // end setup1()
 
 // ================================================================
@@ -742,12 +687,14 @@ void record_loop()
 		Serial.println("Something dun fucked up");
 		return;
 	}
-
 	auto tabs = "R\t\t\t\t\t";
-
 	record_time("entering loop", micros(), __LINE__, 0L);
 
 	//readLeft = false; //TODO for testing only.  It forces system to read only one accelerometer
+
+	// 
+	// wait for and process accelerometer data to be ready, doing other things in the meantime
+	//
 	while (true)
 	{
 		long loop_start = millis(); // for calculating wait timeout
@@ -755,27 +702,31 @@ void record_loop()
 		//record_time("top of loop", micros(), __LINE__, loop_start_micro);
 		TIME_EVENT(top of loop)
 
+		// 
 		// wait for data from an accelerometer
+		//
 		while (true)
 		{
-			// always look for ON/OFF button push
+			// before waiting, always look for ON/OFF button push
 			if (on_off_pushed)
 			{
+				logger_info(__LINE__, "On_off switch push detected,  Going to going_off");
 				system_State.previous = system_State.current;
 				system_State.next = going_off;
 				//  TODO insert any required cleanup code here
-				logger_info(__LINE__, "On_off switch push detected,  Going to going_off");
+
 				return;
 			}
-			// if either SW1 or SW2 is pressed return to calling state
-			if (button_press_quick_check(SW1)|| button_press_quick_check(SW2)) return;
+			// before waiting, if either SW1 or SW2 is pressed return to calling state
+			if (button_press_quick_check(SW1) || button_press_quick_check(SW2)) return;
 
-			// now look for accelerometer data
+			//
+			// look for accelerometer data and process if found
+			//
 			fifoCount_left = mpu_left.getFIFOCount();
 			fifoCount_right = mpu_right.getFIFOCount();
 			//record_time("got FIFO's", micros(), __LINE__, loop_start_micro);
 			TIME_EVENT(got FIFOs)
-			// Serial.println(readLeft);
 			if (fifoCount_right >= 42 && mpuInterruptRight && !readLeft)
 			{
 				// Data ready on the right
@@ -784,9 +735,8 @@ void record_loop()
 				readLeft = true;
 				//record_time("breaking", micros(), __LINE__, loop_start_micro);
 				TIME_EVENT(breaking)
-				break;
+				break; // start processing
 			}
-
 			if (fifoCount_left >= 42 && mpuInterruptLeft && readLeft)
 			{
 				// Data ready on the left
@@ -796,20 +746,39 @@ void record_loop()
 				readLeft = false;
 				//record_time("breaking", micros(), __LINE__, loop_start_micro);
 				TIME_EVENT(breaking)
-				break;
+				break; // start processing
 			}
 
-			// log battery voltage if we should
+			// 
+			// now wait
+			// before sleep-waiting log battery voltage if we should
+			//
 			if (millis() > last_measure_milli + BATTERY_MEASURE_INTERVAL)
 			{
-				logger_info(__LINE__, sardprintf("Battery voltage: %f Capacity: %d/100", get_battery_voltage(),
-				                                 get_battery_capacity()));
+				battery_capy_str = sardprintf("Batt Cap'y: %d/100", get_battery_capacity());
+				battery_volts_str = sardprintf("Battery: %fV ", get_battery_voltage());
+				logger_info(__LINE__, battery_volts_str + battery_capy_str);
 				logger_info(__LINE__, sardprintf("Logfile size: %d", logfile.size()));
 				last_measure_milli = millis();
 			}
 
+			// before sleep-waiting blank the display if we should
 
-			// now set an interrupt driven sleep depending on readLeft
+			if (get_turn_display_off())
+			{
+				display.ssd1306_command(0xAE);
+				// a direct command to blank the display and go into sleep.  Hopefully it works!
+				reset_turn_display_off(); // reset the blank display
+				logger_info(__LINE__, "Display turned OFF after timed interval interrupt");
+				//logger_debug(__LINE__, sardprintf("timerRead: %d", get_display_timer()));
+			}
+			//else
+			//{
+			//	logger_debug(__LINE__, sardprintf("timer: %d", get_display_timer()));
+			//}
+
+
+			// set an GPIO driven sleep depending on readLeft
 #if 1
 			long start = micros(); //start of sleep
 			esp_sleep_enable_gpio_wakeup();
@@ -924,9 +893,9 @@ void record_loop()
 			// check for overflow (this should never happen unless our code is too inefficient)
 		else if ((mpuIntStatus & _BV(MPU6050_INTERRUPT_FIFO_OFLOW_BIT)) || fifoCount >= 1024)
 		{
-			logger_error(__LINE__, sardprintf("%s FIFO overflow.  Status:(%d) Count:(%d)", mpu->prefix, mpuIntStatus,
+			logger_error(__LINE__, sardprintf("Resetting %s FIFO due to overflow.  Status:(%d) Count:(%d)", mpu->prefix, mpuIntStatus,
 			                                  fifoCount));
-			logger_error(__LINE__, sardprintf("resetting %s FIFO", mpu->label));
+			//logger_error(__LINE__, sardprintf("resetting %s FIFO", mpu->label));
 			mpu->resetFIFO();
 			fifoCount = mpu->getFIFOCount(); // will be zero after reset no need to ask
 			if (fifoCount != 0)
@@ -1038,7 +1007,6 @@ void record_loop()
 			Serial.print("\t");
 			Serial.println(q.z);
 #endif
-
 
 #ifdef LOG_READABLE_QUATERNION
 			// log quaternion values in easy matrix form: w x y z
@@ -1174,12 +1142,14 @@ void recording_state()
 {
 	system_State.current = recording;
 	logger_debug(__LINE__, "Starting recording");
+	//log_core(__LINE__);
 
 	// display a splash display
 	int button_pins[] = {SW1, SW2}; // these are the buttons we'll look for input from
 	int num_pins = sizeof(button_pins) / sizeof(button_pins[0]);
 	//display_and_blank("Starting to record", "", "Please carry on!", button_pins, num_pins, DISPLAY_BLANK_INTERVAL);
-	display_and_blank(String("Starting to record"), log_filepath, String("Chive on!!!"));
+	logger_debug(__LINE__, "Display > Starting to record"); 
+	display_and_blank(String("Starting to record"), log_filename, String("Chive on!!!"));
 
 	// gather and record loop
 	// NOTE: this loop is used by several states and has calling-state-specific logic.  If the code returns
@@ -1191,7 +1161,9 @@ void recording_state()
 		yield();
 		delay(100);
 		logger_debug(__LINE__, String("Status button push"));
-		display_and_blank("STATUS UPDATE", "", "FIX THIS!!");
+		logger_info(__LINE__, "Display > STATUS UPDATE");
+		display_and_blank(sardprintf("STATUS:%s",system_Status.overall_status.msg), battery_capy_str, 
+			sardprintf("Log size: %d", logfile.size()));
 	}
 	// if we fall out of this loop it's because next state != this state
 }
@@ -1205,8 +1177,18 @@ void waiting_state()
 {
 	system_State.current = waiting;
 	logger_debug(__LINE__, "Starting waiting state");
+	logger_debug(__LINE__, "Display > Calibration choice");
 
-	display_and_hold("", "Pls CHOOSE", "", "record", "calibrate");
+	display_and_hold("", "CHOOSE", "", "record", "calibrate");
+
+	// waiting for the interrupt to trigger TODO fix this
+	for (auto i = 0; i < 10; i++)
+	{
+		//logger_debug(__LINE__, sardprintf("timerRead: %d.", get_display_timer(),
+		//                                  get_turn_display_off()));
+		delay(100);
+	}
+	if (get_turn_display_off()) reset_turn_display_off();
 
 	int button_pins[] = {SW1, SW2}; // these are the buttons we'll look for input from
 	int num_pins = sizeof(button_pins) / sizeof(button_pins[0]);
@@ -1259,7 +1241,7 @@ void calibration()
 
 	display_and_hold("", "Press any", "button", "this", "that");
 
-	int button_pins[] = { SW1, SW2 }; // these are the buttons we'll look for input from
+	int button_pins[] = {SW1, SW2}; // these are the buttons we'll look for input from
 	int num_pins = sizeof(button_pins) / sizeof(button_pins[0]);
 
 	while (system_State.next == calibrate)
@@ -1269,13 +1251,13 @@ void calibration()
 		 *  record = SW1
 		 *  calibrate = SW2 */
 		const button temp_button = find_button_pressed(button_pins, num_pins);
-		if (temp_button.pin == (gpio_num_t)SW1 | temp_button.pin == (gpio_num_t)SW2) 
+		if (temp_button.pin == (gpio_num_t)SW1 | temp_button.pin == (gpio_num_t)SW2)
 		{
 			yield();
-			delay(250); // let the switch disengage - avoid false second trigger
-			system_State.next = recording;
-			logger_data(__LINE__, "Calibration button pushed");
+			logger_data(__LINE__, "Calibration button pushed"); // message for data collection
 			logger_debug(__LINE__, String("Going to record "));
+			delay(200); // let the switch disengage - avoid false second trigger
+			system_State.next = recording;
 			break;
 		}
 
@@ -1285,11 +1267,10 @@ void calibration()
 			yield();
 			delay(250); // let the switch disengage - avoid false second trigger
 			logger_error(__LINE__, String("Did not get valid button"));
-			display_and_blank("Exited record loop", "", "Without button");
+			display_and_blank("No button!", "", "Recalibrating");
 		}
 	}
 	// if we fall out of this loop it's because next state != this state, so go there
-
 }
 
 /**
@@ -1392,7 +1373,7 @@ void begin_state()
 void loop()
 {
 	// This is a state machine implementation
-	logger_debug(__LINE__, "Starting state loop");
+	//logger_debug(__LINE__, "Starting state loop");
 
 	switch (system_State.next)
 	{

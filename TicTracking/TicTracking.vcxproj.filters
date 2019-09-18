@@ -37,6 +37,9 @@
     <ClInclude Include="system_state.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="system_parameters.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Multi_I2C.cpp">
