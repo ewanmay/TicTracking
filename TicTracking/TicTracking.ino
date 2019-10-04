@@ -46,14 +46,24 @@ String msg;
 unsigned long last_measure_milli = 0; //records when last measurement was logged
 
 
-#define SAMPLE_RATE 10
+#define SAMPLE_RATE 20 // samples per second
 #define WAIT_TIMEOUT_MS  (1000/(SAMPLE_RATE) * 2) //timeout interval (mS) waiting for interrupt from accelerometer
 #define GYRO_RATE 1000
 
-#define RECORD_READABLE_QUATERNION
-// #define OUTPUT_READABLE_QUATERNION
-//#define OUTPUT_ALL
+/*******************************************************************************
+ * 
+ * OUTPUT FORMAT
+ * 
+ *******************************************************************************/
+#define RECORD_READABLE_QUATERNION //actual quaternion components in a [w, x, y, z] format
+//#define OUTPUT_ALL // output all formats
 //#define RECORD_ALL // uncomment "RECORD_ALL" if you want to write the actual data straight out of the FIFO
+//#define OUTPUT_READABLE_EULER //Euler angles (in degrees) calculated from the quaternions coming from the FIFO
+//#define OUTPUT_READABLE_YAWPITCHROLL //the yaw pitch/roll angles (in degrees) calculated from the quaternions coming from the FIFO. Note this also requires gravity vector calculations.
+//#define OUTPUT_READABLE_REALACCEL  //acceleration components with gravity removed. This acceleration reference frame is not compensated for orientation, so +X is always +X according to the sensor, just without the effects of gravity
+//#define OUTPUT_READABLE_WORLDACCEL //acceleration components with gravity removed and adjusted for the world frame of reference (yaw is relative to initial orientation, since no magnetometer is present in this case)
+
+// #define OUTPUT_TEAPOT //output = format used for the InvenSense teapot demo
 
 /*****************************************************************************
  *
@@ -164,43 +174,6 @@ int line_count = 0; // counts lines prior to flushing
 #endif
 
 
-// uncomment "OUTPUT_READABLE_QUATERNION" if you want to see the actual
-// quaternion components in a [w, x, y, z] format (not best for parsing
-// on a remote host such as Processing or something though)
-
-
-// uncomment "OUTPUT_READABLE_EULER" if you want to see Euler angles
-// (in degrees) calculated from the quaternions coming from the FIFO.
-// Note that Euler angles suffer from gimbal lock (for more info, see
-// http://en.wikipedia.org/wiki/Gimbal_lock)
-//#define OUTPUT_READABLE_EULER
-
-// uncomment "OUTPUT_READABLE_YAWPITCHROLL" if you want to see the yaw/
-// pitch/roll angles (in degrees) calculated from the quaternions coming
-// from the FIFO. Note this also requires gravity vector calculations.
-// Also note that yaw/pitch/roll angles suffer from gimbal lock (for
-// Also note that yaw/pitch/roll angles suffer from gimbal lock (for
-// more info, see: http://en.wikipedia.org/wiki/Gimbal_lock)
-//#define OUTPUT_READABLE_YAWPITCHROLL
-
-// uncomment "OUTPUT_READABLE_REALACCEL" if you want to see acceleration
-// components with gravity removed. This acceleration reference frame is
-// not compensated for orientation, so +X is always +X according to the
-// sensor, just without the effects of gravity. If you want acceleration
-// compensated for orientation, us OUTPUT_READABLE_WORLDACCEL instead.
-// #define OUTPUT_READABLE_REALACCEL
-
-// uncomment "OUTPUT_READABLE_WORLDACCEL" if you want to see acceleration
-// components with gravity removed and adjusted for the world frame of
-// reference (yaw is relative to initial orientation, since no magnetometer
-// is present in this case). Could be quite handy in some cases.
-//#define OUTPUT_READABLE_WORLDACCEL
-
-// uncomment "OUTPUT_TEAPOT" if you want output that matches the
-// format used for the InvenSense teapot demo
-//#define OUTPUT_TEAPOT
-
-
 /*****************************************************************************
  *
  * MPU 6050 related
@@ -270,7 +243,6 @@ void on_off_switch_reset()
 volatile bool mpuInterruptRight = false; // indicates whether MPU interrupt pin has gone high
 volatile bool mpuInterruptLeft = false; // indicates whether MPU interrupt pin has gone high
 
-
 // ================================================================
 // ===               GET BATTERY LEVEL                          ===
 // ================================================================
@@ -311,6 +283,8 @@ int get_battery_capacity()
 	}
 }
 
+
+
 // ================================================================
 // ===               LOG NAME                                   ===
 // ================================================================
@@ -344,7 +318,7 @@ void initializeDmp(int devStatus, int interruptPin, Multi_MPU& mpu)
 		// Calibration Time: generate offsets and calibrate our MPU6050
 		mpu.CalibrateAccel(6);
 		mpu.CalibrateGyro(6);
-		mpu.PrintActiveOffsets();
+		//mpu.PrintActiveOffsets();
 		// turn on the DMP, now that it's ready
 		mpu.setDMPEnabled(true);
 
@@ -368,9 +342,9 @@ void initializeDmp(int devStatus, int interruptPin, Multi_MPU& mpu)
 		// 1 = initial memory load failed
 		// 2 = DMP configuration updates failed
 		// (if it's going to break, usually the code will be 1)
-		Serial.print(F("DMP Initialization failed (code "));
-		Serial.print(devStatus);
-		Serial.println(F(")"));
+		//Serial.print(F("DMP Initialization failed (code "));
+		//Serial.print(devStatus);
+		//Serial.println(F(")"));
 	}
 }
 
@@ -379,7 +353,8 @@ bool recover_MPU(Multi_MPU& mpu)
 {
 	uint8_t devStatus; // return init_status_string after each device operation (0 = success, !0 = error)
 	// initialize device
-	Serial.printf(F("Recovering %s MPU...at address "), mpu.label);
+	Serial.printf(F
+	("Recovering %s MPU...at address "), mpu.label);
 
 	mpu.initialize();
 	//mpu_right.initialize();
@@ -505,8 +480,9 @@ void setup1()
 
 #ifdef LOGGING
 	// Set up logging
-	Log_Level excludes[] = {data}; //exclude printing data logs because so voluminous
-	set_logger_filter(excludes, sizeof(excludes) / sizeof(excludes[0]), 10);
+	// Log_Level excludes[] = { ignore, info, error,critical }; //exclude printing data logs because so voluminous
+	// Log_Level excludes[] = { data }; //exclude printing data logs because so voluminous
+	// set_logger_filter(excludes, sizeof(excludes) / sizeof(excludes[0]), 10);
 	while (!SD.begin())
 	{
 		logger_debug(__LINE__, "SD initialization failed! ... retrying");
@@ -594,23 +570,25 @@ void setup1()
 #endif
 
 #endif
-	while (!dmpReady)
+ 
 	{
 		// verify connection
-		Serial.println(mpu_right.testConnection()
-			               ? F("MPU6050 right side connection successful")
-			               : F("MPU6050 right side connection failed"));
-		Serial.println(mpu_left.testConnection()
-			               ? F("MPU6050 left side connection successful")
-			               : F("MPU6050 left side connection failed"));
+		//Serial.println(mpu_right.testConnection()
+		//	               ? F("MPU6050 right side connection successful")
+		//	               : F("MPU6050 right side connection failed"));
+		//Serial.println(mpu_left.testConnection()
+		//	               ? F("MPU6050 left side connection successful")
+		//	               : F("MPU6050 left side connection failed"));
 
-		// initialize device
-		Serial.print(F("Initializing I2C devices...at "));
+		// initialize devices
+		
+		//Serial.print(F("Initializing I2C devices...at "));
 		mpu_left.initialize();
 		mpu_right.initialize();
+		logger_debug(__LINE__, sardprintf("Initializing IMU devices...at ", String(mpu_left.getDeviceID(), HEX), String(mpu_right.getDeviceID(), HEX)));
 
-		Serial.print(mpu_left.getDeviceID(), HEX);
-		Serial.println(" and " + String(mpu_right.getDeviceID(), HEX));
+		//Serial.print(mpu_left.getDeviceID(), HEX);
+		//Serial.println(" and " + String(mpu_right.getDeviceID(), HEX));
 
 		//logger_debug(__LINE__, mpu_left.getStatusString());
 		//logger_debug(__LINE__, mpu_right.getStatusString());
@@ -626,10 +604,10 @@ void setup1()
 		devStatus_right = mpu_right.dmpInitialize();
 		if (!devStatus_right)
 		{
-			logger_debug(__LINE__, "Display > Right MPU ok");
-			display_and_blank("Right MPU ok", system_Status, "Please stand by...");
+			logger_debug(__LINE__, "Display > Right IMU ok");
+			display_and_blank("Right IMU init ok", system_Status, "Please stand by...");
 		}
-		Serial.println(F("Initializing left DMP..."));
+		//Serial.println(F("Initializing left DMP..."));
 
 		devStatus_left = mpu_left.dmpInitialize();
 		if (!devStatus_left)
@@ -1142,6 +1120,8 @@ void recording_state()
 {
 	system_State.current = recording;
 	logger_debug(__LINE__, "Starting recording");
+	logger_data(__LINE__, "Recording started"); // log the start of recording in DATA
+
 	//log_core(__LINE__);
 
 	// display a splash display
