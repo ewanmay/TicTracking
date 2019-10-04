@@ -41,6 +41,10 @@ void setup1();
 #define LOGGING
 #define LOGFILE "/Logs/Log xxxx - yyyy.txt"  //where xxxx = date and yyyy = daily sequence
 
+//#define TEST_L_IMU  // switches to force system to use one IMU only
+#define TEST_R_IMU
+
+
 String msg;
 #define BATTERY_MEASURE_INTERVAL  10*60*1000 //number of millis() between measurements
 unsigned long last_measure_milli = 0; //records when last measurement was logged
@@ -221,7 +225,7 @@ float ypr[3]; // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vecto
 // packet structure for InvenSense teapot demo
 uint8_t teapotPacket[14] = {'$', 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x00, 0x00, '\r', '\n'};
 
-auto readLeft = false;
+auto readLeft = false;  // for testing, forces the system to read only the Left IMU
 long old_millis = 0; //for calculating dump intervals
 
 
@@ -629,7 +633,13 @@ void setup1()
 		initializeDmp(devStatus_right, INTERRUPT_PIN_RIGHT, mpu_right);
 		initializeDmp(devStatus_left, INTERRUPT_PIN_LEFT, mpu_left);
 
-		dmpReady = (devStatus_right == 0) && (devStatus_left == 0);
+#if defined( TEST_R_IMU)
+		dmpReady = (devStatus_right == 0);
+#elif defined (TEST_L_IMU)
+		dmpReady = (devStatus_left == 0);
+#else
+		dmpReady= (devStatus_right == 0) && (devStatus_left == 0);
+#endif
 	}
 
 	// set data rates void setRate(uint8_t rate);
@@ -668,8 +678,6 @@ void record_loop()
 	auto tabs = "R\t\t\t\t\t";
 	record_time("entering loop", micros(), __LINE__, 0L);
 
-	//readLeft = false; //TODO for testing only.  It forces system to read only one accelerometer
-
 	// 
 	// wait for and process accelerometer data to be ready, doing other things in the meantime
 	//
@@ -677,11 +685,17 @@ void record_loop()
 	{
 		long loop_start = millis(); // for calculating wait timeout
 		long loop_start_micro = micros(); // for calculating ms timing
-		//record_time("top of loop", micros(), __LINE__, loop_start_micro);
+
+#if defined( TEST_R_IMU)
+		readLeft = false; //TODO for testing only.  It forces system to read only one accelerometer
+#elif defined (TEST_L_IMU)
+		readLeft = true; //TODO for testing only.  It forces system to read only one accelerometer
+#endif
+
 		TIME_EVENT(top of loop)
 
 		// 
-		// wait for data from an accelerometer
+		// wait for data from an accelerometer.  exit when you have some
 		//
 		while (true)
 		{
