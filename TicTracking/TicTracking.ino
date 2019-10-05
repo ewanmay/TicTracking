@@ -678,9 +678,7 @@ void record_loop()
 	auto tabs = "R\t\t\t\t\t";
 	record_time("entering loop", micros(), __LINE__, 0L);
 
-	// 
 	// wait for and process accelerometer data to be ready, doing other things in the meantime
-	//
 	while (true)
 	{
 		long loop_start = millis(); // for calculating wait timeout
@@ -693,10 +691,7 @@ void record_loop()
 #endif
 
 		TIME_EVENT(top of loop)
-
-		// 
 		// wait for data from an accelerometer.  exit when you have some
-		//
 		while (true)
 		{
 			// before waiting, always look for ON/OFF button push
@@ -710,11 +705,9 @@ void record_loop()
 				return;
 			}
 			// before waiting, if either SW1 or SW2 is pressed return to calling state
-			if (button_press_quick_check(SW1) || button_press_quick_check(SW2)) return;
+			// if (button_press_quick_check(SW1) || button_press_quick_check(SW2)) return;
 
-			//
 			// look for accelerometer data and process if found
-			//
 			fifoCount_left = mpu_left.getFIFOCount();
 			fifoCount_right = mpu_right.getFIFOCount();
 			//record_time("got FIFO's", micros(), __LINE__, loop_start_micro);

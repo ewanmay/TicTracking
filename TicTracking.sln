@@ -25,6 +25,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "GPIO_sleeping", "..\..\..\D
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "timer_interrupt", "..\..\..\Documents\Arduino\time_interrupt\time_interrupt.vcxproj", "{5E79DCC0-DD4F-4C1E-A343-F552727D3629}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "temp_timer", "..\..\..\Documents\Arduino\temp_timer\temp_timer.vcxproj", "{3B171A5F-74E1-4122-AD54-B17929F1BC8D}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x86 = Debug|x86
@@ -75,6 +77,10 @@ Global
 		{5E79DCC0-DD4F-4C1E-A343-F552727D3629}.Debug|x86.Build.0 = Debug|Win32
 		{5E79DCC0-DD4F-4C1E-A343-F552727D3629}.Release|x86.ActiveCfg = Release|Win32
 		{5E79DCC0-DD4F-4C1E-A343-F552727D3629}.Release|x86.Build.0 = Release|Win32
+		{3B171A5F-74E1-4122-AD54-B17929F1BC8D}.Debug|x86.ActiveCfg = Debug|Win32
+		{3B171A5F-74E1-4122-AD54-B17929F1BC8D}.Debug|x86.Build.0 = Debug|Win32
+		{3B171A5F-74E1-4122-AD54-B17929F1BC8D}.Release|x86.ActiveCfg = Release|Win32
+		{3B171A5F-74E1-4122-AD54-B17929F1BC8D}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
