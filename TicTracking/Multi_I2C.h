@@ -37,7 +37,7 @@ public:
 
 	char* label; // a short descriptive label like "Right"
 	char* prefix; //single character label like "R"
-	String init_status_string; //a String of getStatusString at startup.  for integrity checking
+	String init_status_string; //a String of getStatusString at startup.  For crude integrity checking
 
 
 	

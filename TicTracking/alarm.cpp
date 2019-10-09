@@ -674,7 +674,7 @@ button find_button_pressed(int button_pins[], int num_pins)
 			}
 		}
 	}
-	logger_error(__LINE__, String("Expected to find real button, but returning null"));
+	logger_error(__LINE__, String("Went looking for button pushed.  Weird, returning null"));
 	return null_button;
 }
 

@@ -32,6 +32,9 @@
  *****************************************************************************/
 void setup1();
 
+// TODO DELETE ME
+int counter = 0;
+
 /*****************************************************************************
  *
  * option switches
@@ -41,8 +44,9 @@ void setup1();
 #define LOGGING
 #define LOGFILE "/Logs/Log xxxx - yyyy.txt"  //where xxxx = date and yyyy = daily sequence
 
-//#define TEST_L_IMU  // switches to force system to use one IMU only
-#define TEST_R_IMU
+// switches to force system to use one IMU only
+//#define TEST_L_IMU  
+//#define TEST_R_IMU
 
 
 String msg;
@@ -51,6 +55,7 @@ unsigned long last_measure_milli = 0; //records when last measurement was logged
 
 
 #define SAMPLE_RATE 20 // samples per second
+
 #define WAIT_TIMEOUT_MS  (1000/(SAMPLE_RATE) * 2) //timeout interval (mS) waiting for interrupt from accelerometer
 #define GYRO_RATE 1000
 
@@ -68,6 +73,20 @@ unsigned long last_measure_milli = 0; //records when last measurement was logged
 //#define OUTPUT_READABLE_WORLDACCEL //acceleration components with gravity removed and adjusted for the world frame of reference (yaw is relative to initial orientation, since no magnetometer is present in this case)
 
 // #define OUTPUT_TEAPOT //output = format used for the InvenSense teapot demo
+
+#ifdef RECORD_READABLE_QUATERNION
+#define RECORD_HEADER "mSec, w, x, y, z"
+#define FLUSH_LIMIT 20
+File myFile;
+int line_count = 0; // counts lines prior to flushing
+#endif
+
+
+#ifdef RECORD_ALL
+#define RECORD_HEADER "mSec, qw, qx, qy, qz, ax, ay, az, gx, gy, gz"
+#define FLUSH_LIMIT 20
+int line_count = 0; // counts lines prior to flushing
+#endif
 
 /*****************************************************************************
  *
@@ -155,39 +174,9 @@ String log_filename;
 
 /*****************************************************************************
  *
- * outputs
- *
- *****************************************************************************/
-
-// uncomment "RECORD_READABLE_QUATERNION" if you want to write the actual
-// quaternion components in a [w, x, y, z] format (not best for parsing
-// on a remote host such as Processing or something though)
-//#define RECORD_READABLE_QUATERNION
-#ifdef RECORD_READABLE_QUATERNION
-#define RECORD_HEADER "mSec, w, x, y, z"
-#define FLUSH_LIMIT 20
-File myFile;
-int line_count = 0; // counts lines prior to flushing
-#endif
-
-
-#ifdef RECORD_ALL
-#define RECORD_HEADER "mSec, qw, qx, qy, qz, ax, ay, az, gx, gy, gz"
-#define FLUSH_LIMIT 20
-int line_count = 0; // counts lines prior to flushing
-#endif
-
-
-/*****************************************************************************
- *
  * MPU 6050 related
  *
  *****************************************************************************/
-//#include "MPU6050.h" // not necessary if using MotionApps include file
-// Arduino Wire library is required if I2Cdev I2CDEV_ARDUINO_WIRE implementation
-// is used in I2Cdev.h
-#if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
-#endif
 
 // class default I2C address is 0x68
 // specific I2C addresses may be passed as a parameter here
@@ -225,7 +214,7 @@ float ypr[3]; // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vecto
 // packet structure for InvenSense teapot demo
 uint8_t teapotPacket[14] = {'$', 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x00, 0x00, '\r', '\n'};
 
-auto readLeft = false;  // for testing, forces the system to read only the Left IMU
+auto readLeft = false; // for testing, forces the system to read only the Left IMU
 long old_millis = 0; //for calculating dump intervals
 
 
@@ -288,7 +277,6 @@ int get_battery_capacity()
 }
 
 
-
 // ================================================================
 // ===               LOG NAME                                   ===
 // ================================================================
@@ -333,7 +321,7 @@ void initializeDmp(int devStatus, int interruptPin, Multi_MPU& mpu)
 		unsigned char dmpUpdate[2];
 		mpu.readMemoryBlock(dmpUpdate, 0x02, 0x02, 0x16);
 		// Lets read the dmpUpdate data from the Firmware image, we have 2 bytes to write in bank 0x02 with the Offset 0x16
-		Serial.printf("DMP sample divisor dump.  Should be 0x0, 0x0: ");
+		Serial.printf("DMP sample divisor dump.  Should be 0x1, 0x1: ");
 		for (auto i = 0; i < (sizeof(dmpUpdate) / sizeof(dmpUpdate[0])); i++)
 		{
 			Serial.printf("%d \t", dmpUpdate[i]);
@@ -346,9 +334,20 @@ void initializeDmp(int devStatus, int interruptPin, Multi_MPU& mpu)
 		// 1 = initial memory load failed
 		// 2 = DMP configuration updates failed
 		// (if it's going to break, usually the code will be 1)
-		//Serial.print(F("DMP Initialization failed (code "));
-		//Serial.print(devStatus);
-		//Serial.println(F(")"));
+		char* status_string;
+		switch (devStatus)
+		{
+		case 1:
+			status_string = "Initial memory load failed";
+			break;
+		case 2:
+			status_string = "DMP configuration updates failed";
+			break;
+		default:
+			status_string = "Unrecognized failure";
+		}
+		logger_error(__LINE__, sardprintf("%s DMP Initialization failed code: %d %s", mpu.label, devStatus,
+		                                  status_string));
 	}
 }
 
@@ -358,7 +357,7 @@ bool recover_MPU(Multi_MPU& mpu)
 	uint8_t devStatus; // return init_status_string after each device operation (0 = success, !0 = error)
 	// initialize device
 	Serial.printf(F
-	("Recovering %s MPU...at address "), mpu.label);
+		("Recovering %s MPU...at address "), mpu.label);
 
 	mpu.initialize();
 	//mpu_right.initialize();
@@ -456,10 +455,7 @@ void setup1()
 	while (!Serial); // wait for Leonardo enumeration, others continue immediately
 	//Serial.println("Hello");
 
-
-	// 
 	// set up UI
-	//
 	init_UI();
 	logger_debug(__LINE__, "Display > Starting up");
 	display_and_blank("Starting up", system_Status, "Please stand by");
@@ -470,6 +466,7 @@ void setup1()
 	attachInterrupt(digitalPinToInterrupt(SW3), on_off_switch_set, HIGH);
 
 	// join I2C bus (I2Cdev library doesn't do this automatically)
+	// Arduino Wire library is required if I2Cdev I2CDEV_ARDUINO_WIRE implementation is used in I2Cdev.h
 #if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
 	Wire.begin(); // 400kHz I2C clock. Comment this line if having compilation difficulties
 #elif I2CDEV_IMPLEMENTATION == I2CDEV_BUILTIN_FASTWIRE
@@ -512,7 +509,7 @@ void setup1()
 	}
 	else
 	{
-		logger_debug(__LINE__, "display > RTC initialization ok");
+		logger_debug(__LINE__, "Display > RTC initialization ok");
 		display_and_blank("RTC ok", system_Status, "Please stand by..");
 		//Serial.println("RTC initialization success");
 	}
@@ -523,7 +520,7 @@ void setup1()
 	file_path_yyyy.replace("xxxx", date_stamp);
 
 	// now look for an available logging file
-	for (int i = 1; i < 1000; i++)
+	for (auto i = 1; i < 1000; i++)
 	{
 		char seq[4];
 		sprintf(seq, "%04d", i);
@@ -538,10 +535,10 @@ void setup1()
 		{
 			//Serial.printf("Log file: %s is available\n\r", log_filepath.c_str());
 			logfile = logger_setup(log_filepath);
-			logger_debug(__LINE__, sardprintf("Checking filename start: %d  end:%d", log_filepath.indexOf(String("Log ")),
-				log_filepath.length() - 4));
+			//logger_debug(__LINE__, sardprintf("Checking filename start: %d  end:%d", log_filepath.indexOf(String("Log ")),
+			//	log_filepath.length() - 4));
 			log_filename = log_filepath.substring(log_filepath.indexOf(String("Log ")),
-				log_filepath.length()-4);
+			                                      log_filepath.length() - 4);
 			break;
 		}
 	}
@@ -562,34 +559,26 @@ void setup1()
 
 #if 0 //TODO get this to work
 	Serial.println("Input description for this trial run (return or ignore for none) :");
-	//Serial.setTimeout(3000); //3 seconds to wait for input
 	while (Serial.available() == 0) {}       //Wait for user input
 	Serial.println(Serial.available());
 	msg = Serial.readString();
-	//msg = "<none>";
-	//String temp =  Serial.readString();
 	msg = getstring();
 	if (msg.length() == 0) { msg = "<none provided>"; }
 	logger_info(__LINE__, msg);
 #endif
 
 #endif
- 
-	{
-		// verify connection
-		//Serial.println(mpu_right.testConnection()
-		//	               ? F("MPU6050 right side connection successful")
-		//	               : F("MPU6050 right side connection failed"));
-		//Serial.println(mpu_left.testConnection()
-		//	               ? F("MPU6050 left side connection successful")
-		//	               : F("MPU6050 left side connection failed"));
 
+	{
 		// initialize devices
-		
+
 		//Serial.print(F("Initializing I2C devices...at "));
 		mpu_left.initialize();
 		mpu_right.initialize();
-		logger_debug(__LINE__, sardprintf("Initializing IMU devices...at ", String(mpu_left.getDeviceID(), HEX), String(mpu_right.getDeviceID(), HEX)));
+		logger_debug(__LINE__, sardprintf("Initialized IMU's at %d(L) and %d(R)", mpu_left.getDeviceID(),
+		                                  mpu_right.getDeviceID()));
+		logger_debug(__LINE__, sardprintf("Connection to IMU's: L-%d R-%d", mpu_left.testConnection(),
+		                                  mpu_right.testConnection()));
 
 		//Serial.print(mpu_left.getDeviceID(), HEX);
 		//Serial.println(" and " + String(mpu_right.getDeviceID(), HEX));
@@ -616,8 +605,8 @@ void setup1()
 		devStatus_left = mpu_left.dmpInitialize();
 		if (!devStatus_left)
 		{
-			logger_debug(__LINE__, "Display > Left MPU ok");
-			display_and_blank("Left MPU init ok", system_Status, "Please stand by....");
+			logger_debug(__LINE__, "Display > Left IMU ok");
+			display_and_blank("Left IMU init ok", system_Status, "Please stand by....");
 		}
 		// supply your own gyro offsets here, scaled for min sensitivity
 		mpu_left.setXGyroOffset(220);
@@ -629,16 +618,16 @@ void setup1()
 		mpu_right.setZGyroOffset(-85);
 		mpu_right.setZAccelOffset(1788); // 1688 
 		logger_debug(__LINE__, "Display > DMP calibration");
-		display_and_blank("MPU's warming up", system_Status, "Please stand by.....");
+		display_and_blank("IMU's warming up", system_Status, "Please stand by.....");
 		initializeDmp(devStatus_right, INTERRUPT_PIN_RIGHT, mpu_right);
 		initializeDmp(devStatus_left, INTERRUPT_PIN_LEFT, mpu_left);
 
-#if defined( TEST_R_IMU)
+#if defined (TEST_R_IMU)
 		dmpReady = (devStatus_right == 0);
 #elif defined (TEST_L_IMU)
 		dmpReady = (devStatus_left == 0);
 #else
-		dmpReady= (devStatus_right == 0) && (devStatus_left == 0);
+		dmpReady = (devStatus_right == 0) && (devStatus_left == 0);
 #endif
 	}
 
@@ -673,12 +662,13 @@ void record_loop()
 	if (!dmpReady) //TODO this should go to recording_stopped
 	{
 		Serial.println("Something dun fucked up");
+		logger_error(__LINE__, "Something dun fucked up");
 		return;
 	}
 	auto tabs = "R\t\t\t\t\t";
 	record_time("entering loop", micros(), __LINE__, 0L);
 
-	// wait for and process accelerometer data to be ready, doing other things in the meantime
+	// wait for  accelerometer data to be ready and process, doing other things in the meantime
 	while (true)
 	{
 		long loop_start = millis(); // for calculating wait timeout
@@ -689,8 +679,6 @@ void record_loop()
 #elif defined (TEST_L_IMU)
 		readLeft = true; //TODO for testing only.  It forces system to read only one accelerometer
 #endif
-
-		TIME_EVENT(top of loop)
 		// wait for data from an accelerometer.  exit when you have some
 		while (true)
 		{
@@ -700,17 +688,17 @@ void record_loop()
 				logger_info(__LINE__, "On_off switch push detected,  Going to going_off");
 				system_State.previous = system_State.current;
 				system_State.next = going_off;
-				//  TODO insert any required cleanup code here
-
 				return;
 			}
-			// before waiting, if either SW1 or SW2 is pressed return to calling state
-			// if (button_press_quick_check(SW1) || button_press_quick_check(SW2)) return;
-
-			// look for accelerometer data and process if found
+			//  Also check for button pushes on SW1 or SW2.  Return to calling state if push detected
+			if (button_press_quick_check(SW1) || button_press_quick_check(SW2) )
+			{
+				logger_info(__LINE__, "SW1 or SW2 switch push detected, exiting record loop");
+				return;
+			}
+			// Now look for accelerometer data and process if found
 			fifoCount_left = mpu_left.getFIFOCount();
 			fifoCount_right = mpu_right.getFIFOCount();
-			//record_time("got FIFO's", micros(), __LINE__, loop_start_micro);
 			TIME_EVENT(got FIFOs)
 			if (fifoCount_right >= 42 && mpuInterruptRight && !readLeft)
 			{
@@ -718,7 +706,7 @@ void record_loop()
 				mpuInterruptRight = false;
 				mpu = &mpu_right;
 				readLeft = true;
-				//record_time("breaking", micros(), __LINE__, loop_start_micro);
+				// record_time("breaking", micros(), __LINE__, loop_start_micro);
 				TIME_EVENT(breaking)
 				break; // start processing
 			}
@@ -729,7 +717,7 @@ void record_loop()
 				mpu = &mpu_left;
 				tabs = "L ";
 				readLeft = false;
-				//record_time("breaking", micros(), __LINE__, loop_start_micro);
+				// record_time("breaking", micros(), __LINE__, loop_start_micro);
 				TIME_EVENT(breaking)
 				break; // start processing
 			}
@@ -757,10 +745,10 @@ void record_loop()
 				logger_info(__LINE__, "Display turned OFF after timed interval interrupt");
 				//logger_debug(__LINE__, sardprintf("timerRead: %d", get_display_timer()));
 			}
-			//else
-			//{
-			//	logger_debug(__LINE__, sardprintf("timer: %d", get_display_timer()));
-			//}
+			// else
+			// {
+			// 	logger_debug(__LINE__, sardprintf("timer: %d", get_display_timer()));
+			// }
 
 
 			// set an GPIO driven sleep depending on readLeft
@@ -878,7 +866,8 @@ void record_loop()
 			// check for overflow (this should never happen unless our code is too inefficient)
 		else if ((mpuIntStatus & _BV(MPU6050_INTERRUPT_FIFO_OFLOW_BIT)) || fifoCount >= 1024)
 		{
-			logger_error(__LINE__, sardprintf("Resetting %s FIFO due to overflow.  Status:(%d) Count:(%d)", mpu->prefix, mpuIntStatus,
+			logger_error(__LINE__, sardprintf("Resetting %s FIFO due to overflow.  Status:(%d) Count:(%d)", mpu->prefix,
+			                                  mpuIntStatus,
 			                                  fifoCount));
 			//logger_error(__LINE__, sardprintf("resetting %s FIFO", mpu->label));
 			mpu->resetFIFO();
@@ -919,6 +908,15 @@ void record_loop()
 				// Serial.println(F("fifoBuffer loaded"));
 			}
 			record_time("packets fetched", micros(), __LINE__, loop_start_micro);
+
+
+			// if (counter < 4) {
+			// 	counter = counter + 1;
+			// 	return;
+			// }
+			// else {
+			// 	counter = 0;
+			// }
 
 #ifdef RECORD_READABLE_QUATERNION
 			// write quaternion values in easy matrix form: w x y z
@@ -1076,7 +1074,7 @@ void record_loop()
 			Serial.println(aaWorld.z);
 #endif
 
-#ifdef OUTPUT_TEAPOT
+#ifdef    OUTPUT_TEAPOT
 			// display quaternion values in InvenSense Teapot demo format:
 			teapotPacket[2] = fifoBuffer[0];
 			teapotPacket[3] = fifoBuffer[1];
@@ -1135,7 +1133,7 @@ void recording_state()
 	int button_pins[] = {SW1, SW2}; // these are the buttons we'll look for input from
 	int num_pins = sizeof(button_pins) / sizeof(button_pins[0]);
 	//display_and_blank("Starting to record", "", "Please carry on!", button_pins, num_pins, DISPLAY_BLANK_INTERVAL);
-	logger_debug(__LINE__, "Display > Starting to record"); 
+	logger_debug(__LINE__, "Display > Starting to record");
 	display_and_blank(String("Starting to record"), log_filename, String("Chive on!!!"));
 
 	// gather and record loop
@@ -1149,8 +1147,8 @@ void recording_state()
 		delay(100);
 		logger_debug(__LINE__, String("Status button push"));
 		logger_info(__LINE__, "Display > STATUS UPDATE");
-		display_and_blank(sardprintf("STATUS:%s",system_Status.overall_status.msg), battery_capy_str, 
-			sardprintf("Log size: %d", logfile.size()));
+		display_and_blank(sardprintf("STATUS:%s", system_Status.overall_status.msg), battery_capy_str,
+		                  sardprintf("Log size: %d", logfile.size()));
 	}
 	// if we fall out of this loop it's because next state != this state
 }
@@ -1210,9 +1208,9 @@ void waiting_state()
 		{
 			// we exited record_loop without a valid key pressed.  Log and reenter
 			yield();
-			delay(250); // let the switch disengage - avoid false second trigger
+			//delay(250); // let the switch disengage - avoid false second trigger
 			logger_error(__LINE__, String("Did not get valid button"));
-			display_and_blank("Exited record loop", "", "Without button");
+			display_and_blank("Exiting record loop", "", "Without button(?)");
 		}
 	}
 	// if we fall out of this loop it's because next state != this state, so go there
@@ -1220,7 +1218,7 @@ void waiting_state()
 
 /**
  * \brief Calibration
- * This state involves having the user indicate when his/her head is level
+ * This state involves capturing when the user indicates his/her head is level
  */
 void calibration()
 {
@@ -1234,11 +1232,11 @@ void calibration()
 	while (system_State.next == calibrate)
 	{
 		record_loop();
-		/* we've come here because there's been a menu button pressed.  Find out what it is
+		/* we've exitted the record loop because there should have been a menu button pressed.  Find out what it is
 		 *  record = SW1
 		 *  calibrate = SW2 */
 		const button temp_button = find_button_pressed(button_pins, num_pins);
-		if (temp_button.pin == (gpio_num_t)SW1 | temp_button.pin == (gpio_num_t)SW2)
+		if ((temp_button.pin == (gpio_num_t)SW1) || (temp_button.pin == (gpio_num_t)SW2))
 		{
 			yield();
 			logger_data(__LINE__, "Calibration button pushed"); // message for data collection
@@ -1247,7 +1245,6 @@ void calibration()
 			system_State.next = recording;
 			break;
 		}
-
 		else
 		{
 			// we exited record_loop without a valid key pressed.  Log and reenter
