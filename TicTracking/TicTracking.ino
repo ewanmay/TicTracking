@@ -48,6 +48,9 @@ int counter = 0;
 //#define TEST_L_IMU  
 //#define TEST_R_IMU
 
+// switch to choose between using IMU interrupts to awake system from sleep (power conservation) or drive data collection (original design)
+//#define INTERRUPT_IMU
+
 
 String msg;
 #define BATTERY_MEASURE_INTERVAL  10*60*1000 //number of millis() between measurements
@@ -236,6 +239,16 @@ void on_off_switch_reset()
 volatile bool mpuInterruptRight = false; // indicates whether MPU interrupt pin has gone high
 volatile bool mpuInterruptLeft = false; // indicates whether MPU interrupt pin has gone high
 
+#if defined(INTERRUPT_IMU)
+// interrupt service routines
+void rightDmpDataReady() {
+	mpuInterruptRight = true;
+}
+void leftDmpDataReady() {
+	mpuInterruptLeft = true;
+}
+#endif
+
 // ================================================================
 // ===               GET BATTERY LEVEL                          ===
 // ================================================================
@@ -246,7 +259,7 @@ const int battery_pin = A13;
 const int full_scale = 3646; //full scale output from ADC
 const float full_voltage[] = {4.2, 3.95, 3.8, 3.75, 3.65, 3.0}; // from 0 to 100% discharge in 20% increments
 String battery_volts_str; // holds a string voltage
-String battery_capy_str; // holds a string caoacity
+String battery_capy_str; // holds a string capacity
 
 float get_battery_voltage()
 {
@@ -274,6 +287,7 @@ int get_battery_capacity()
 			test_level += incr;
 		}
 	}
+	return -1; // battery capacity not determined so return -1 as error
 }
 
 
@@ -479,6 +493,15 @@ void setup1()
 	pinMode(INTERRUPT_PIN_LEFT, INPUT);
 	pinMode(INTERRUPT_PIN_RIGHT, INPUT);
 
+	//
+	// IMU Interrupts (conditional)
+	//
+#if defined (INTERRUPT_IMU)
+	attachInterrupt(digitalPinToInterrupt(INTERRUPT_PIN_LEFT), leftDmpDataReady, HIGH);
+	attachInterrupt(digitalPinToInterrupt(INTERRUPT_PIN_RIGHT), rightDmpDataReady, HIGH);
+#endif
+
+
 #ifdef LOGGING
 	// Set up logging
 	// Log_Level excludes[] = { ignore, info, error,critical }; //exclude printing data logs because so voluminous
@@ -556,6 +579,24 @@ void setup1()
 	logger_debug(__LINE__, "Display > Battery status");
 	display_and_blank(battery_volts_str, "", battery_capy_str);
 
+	//
+	// Log application options
+	//
+	logger_info(__LINE__, "Application options (will print if enabled)");
+#ifdef TEST_L_IMU
+	logger_info(__LINE__, "Run on Left IMU only");
+#endif
+#ifdef TEST_R_IMU
+	logger_info(__LINE__, "Run on Right IMU only");
+#endif
+#ifdef INTERRUPT_IMU
+	logger_info(__LINE__, "Run interrupt data gathering instead of low power sleep");
+#endif
+#ifdef TIMING 
+	logger_info(__LINE__, "Microsecond timing recording enabled");
+#endif
+	logger_info(__LINE__, sardprintf("Sample rate: %d",SAMPLE_RATE));
+
 
 #if 0 //TODO get this to work
 	Serial.println("Input description for this trial run (return or ignore for none) :");
@@ -600,6 +641,10 @@ void setup1()
 			logger_debug(__LINE__, "Display > Right IMU ok");
 			display_and_blank("Right IMU init ok", system_Status, "Please stand by...");
 		}
+		else
+		{
+			logger_error(__LINE__, "Right IMU init failed");
+		}
 		//Serial.println(F("Initializing left DMP..."));
 
 		devStatus_left = mpu_left.dmpInitialize();
@@ -607,6 +652,10 @@ void setup1()
 		{
 			logger_debug(__LINE__, "Display > Left IMU ok");
 			display_and_blank("Left IMU init ok", system_Status, "Please stand by....");
+		}
+		else
+		{
+			logger_error(__LINE__, "Left IMU init failed");
 		}
 		// supply your own gyro offsets here, scaled for min sensitivity
 		mpu_left.setXGyroOffset(220);
@@ -691,26 +740,29 @@ void record_loop()
 				return;
 			}
 			//  Also check for button pushes on SW1 or SW2.  Return to calling state if push detected
-			if (button_press_quick_check(SW1) || button_press_quick_check(SW2) )
+			if (button_press_quick_check(SW1) || button_press_quick_check(SW2))
 			{
 				logger_info(__LINE__, "SW1 or SW2 switch push detected, exiting record loop");
 				return;
 			}
+			//
 			// Now look for accelerometer data and process if found
+			//
 			fifoCount_left = mpu_left.getFIFOCount();
 			fifoCount_right = mpu_right.getFIFOCount();
-			TIME_EVENT(got FIFOs)
-			if (fifoCount_right >= 42 && mpuInterruptRight && !readLeft)
+			TIME_EVENT(got FIFO counts)
+			//logger_debug(__LINE__, sardprintf("R:%d L:%d", fifoCount_right, fifoCount_left));
+			if (fifoCount_right >= packetSize && mpuInterruptRight && !readLeft)
 			{
 				// Data ready on the right
 				mpuInterruptRight = false;
 				mpu = &mpu_right;
 				readLeft = true;
 				// record_time("breaking", micros(), __LINE__, loop_start_micro);
-				TIME_EVENT(breaking)
+				TIME_EVENT(breaking on right)
 				break; // start processing
 			}
-			if (fifoCount_left >= 42 && mpuInterruptLeft && readLeft)
+			if (fifoCount_left >= packetSize && mpuInterruptLeft && readLeft)
 			{
 				// Data ready on the left
 				mpuInterruptLeft = false;
@@ -718,7 +770,7 @@ void record_loop()
 				tabs = "L ";
 				readLeft = false;
 				// record_time("breaking", micros(), __LINE__, loop_start_micro);
-				TIME_EVENT(breaking)
+				TIME_EVENT(breaking on left)
 				break; // start processing
 			}
 
@@ -752,11 +804,13 @@ void record_loop()
 
 
 			// set an GPIO driven sleep depending on readLeft
-#if 1
+
+#if !defined(INTERRUPT_IMU)
 			long start = micros(); //start of sleep
 			esp_sleep_enable_gpio_wakeup();
 			if (readLeft)
 			{
+				TIME_EVENT(Start left sleep)
 				gpio_wakeup_enable((gpio_num_t)INTERRUPT_PIN_LEFT, GPIO_INTR_HIGH_LEVEL);
 				//logger_debug(__LINE__, sardprintf("Going 2 sleep on L intpt elapsed: %d us", micros() - loop_start_micro));
 
@@ -775,10 +829,9 @@ void record_loop()
 				if (!button_press_quick_check(SW3)) on_off_pushed = true;
 				// check to see if the ok/off button pushed  TODO find a better way to do this
 			}
-#endif
-#if 1
 			else
 			{
+				TIME_EVENT(Start right sleep)
 				gpio_wakeup_enable((gpio_num_t)INTERRUPT_PIN_RIGHT, GPIO_INTR_HIGH_LEVEL);
 				//logger_debug(__LINE__, sardprintf("Going 2 sleep on R intpt elapsed: %d us", micros() - loop_start_micro));
 
@@ -798,13 +851,15 @@ void record_loop()
 				// check to see if the ok/off button pushed  TODO find a better way to do this
 			}
 			esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
-#endif
+#endif // !defined(INTERRUPT_IMU)
 
 			if ((millis() - loop_start) > WAIT_TIMEOUT_MS) //WAIT_TIMEOUT_MS
 			{
 				logger_error(__LINE__, sardprintf("Too long in interrupt wait loop (%d|%d|%d).  Checking MPU *********",
 				                                  loop_start, millis() - loop_start, WAIT_TIMEOUT_MS));
 				// TODO fix this problem - the following code is a KLUGE
+				mpu = &mpu_right;
+				if (readLeft) mpu = &mpu_left;
 				String status_now = mpu->getStatusString();
 				if (mpu->init_status_string.equals(status_now))
 				{
@@ -830,7 +885,7 @@ void record_loop()
 
 		// get current FIFO count
 		fifoCount = mpu->getFIFOCount();
-		record_time("process INT", micros(), __LINE__, loop_start_micro);
+		record_time("process packet", micros(), __LINE__, loop_start_micro);
 		if (fifoCount < packetSize)
 		{
 			logger_error(__LINE__, sardprintf(

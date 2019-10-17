@@ -3,7 +3,7 @@
 // #define MPU6050_ADDRESS_AD0_LOW     0x68 // address pin low (GND), default for InvenSense evaluation board
 // #define MPU6050_ADDRESS_AD0_HIGH    0x69 // address pin high (VCC)
 // #define MPU6050_DEFAULT_ADDRESS     MPU6050_ADDRESS_AD0_HIGH
-#include <MPU6050_6Axis_MotionApps20.h>
+#include <MPU6050_6Axis_MotionApps_V6_12.h>
 #include <Arduino.h>
 class Multi_MPU : public MPU6050
 {
